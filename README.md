@@ -2,6 +2,8 @@
 
 FastAPI + MongoDB backend for a video calling app with admin panel.
 
+> 📱 **Flutter mobile app:** [`flutter_app/`](flutter_app/) — complete app (auth, discover, calls, wallet, gifts, chatbot, levels) against this same API.
+
 ## 🚀 Quick Start
 
 ```bash

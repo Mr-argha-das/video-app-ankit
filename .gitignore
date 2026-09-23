@@ -11,3 +11,13 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.idea/
+.metadata
