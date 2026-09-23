@@ -129,7 +129,20 @@ async def chat_with_bot(
 
     # Get or create conversation
     conv_id = request.conversation_id
-    if not conv_id:
+    if conv_id:
+        # FIX: pehle koi bhi conversation_id pass hoti thi — invalid ID pe 500 crash,
+        # aur kisi doosre user ki conversation me bhi message push ho jaata tha!
+        try:
+            existing_conv = await db.conversations.find_one({
+                "_id": ObjectId(conv_id),
+                "user_id": str(current_user["_id"]),
+                "type": "bot"
+            })
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid conversation ID")
+        if not existing_conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    else:
         conv_doc = {
             "user_id": str(current_user["_id"]),
             "type": "bot",
@@ -190,7 +203,7 @@ async def get_bot_chat_history(
             "_id": ObjectId(conversation_id),
             "user_id": str(current_user["_id"])
         })
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid conversation ID")
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")

@@ -179,7 +179,7 @@ async def admin_get_user(user_id: str, db=Depends(get_db), admin=Depends(get_cur
     """Admin: Get specific user details"""
     try:
         user = await db.users.find_one({"_id": ObjectId(user_id)}, {"password": 0})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid user ID")
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -211,7 +211,7 @@ async def admin_block_user(
             {"_id": ObjectId(request.user_id)},
             {"$set": {"is_blocked": True, "block_reason": request.reason, "blocked_at": datetime.utcnow()}}
         )
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid user ID")
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -225,7 +225,7 @@ async def admin_unblock_user(user_id: str, db=Depends(get_db), admin=Depends(get
             {"_id": ObjectId(user_id)},
             {"$set": {"is_blocked": False}, "$unset": {"block_reason": "", "blocked_at": ""}}
         )
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid user ID")
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -236,7 +236,7 @@ async def admin_delete_user(user_id: str, db=Depends(get_db), admin=Depends(get_
     """Admin: Delete user account"""
     try:
         result = await db.users.delete_one({"_id": ObjectId(user_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid user ID")
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")

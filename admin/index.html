@@ -400,11 +400,11 @@
         </div>
         <div class="form-group">
             <label>USERNAME</label>
-            <input type="text" id="loginUsername" placeholder="Enter admin username" value="admin">
+            <input type="text" id="loginUsername" placeholder="Enter admin username" autocomplete="username">
         </div>
         <div class="form-group">
             <label>PASSWORD</label>
-            <input type="password" id="loginPassword" placeholder="Enter password" value="Admin@123">
+            <input type="password" id="loginPassword" placeholder="Enter password" autocomplete="current-password">
         </div>
         <button class="btn-login" onclick="doLogin()">
             <i class="fas fa-sign-in-alt"></i> Sign In to Dashboard
@@ -641,6 +641,29 @@
                             <span class="card-title">📊 Recharge Packages</span>
                         </div>
                         <div class="card-body" id="packagesDisplay"></div>
+                    </div>
+                </div>
+                <div class="card" style="margin-bottom:20px;">
+                    <div class="card-header">
+                        <span class="card-title">🕐 Pending Recharge Requests</span>
+                        <span id="pendingRechargeCount" class="badge badge-warning">-</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Amount</th>
+                                    <th>Coins</th>
+                                    <th>UPI Ref / UTR</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pendingRechargesBody">
+                                <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;">No pending requests</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
                 <div class="card">
@@ -1112,7 +1135,8 @@ function showPage(page) {
     
     const loaders = {
         users: loadUsers, hosts: loadHosts, calls: loadCalls,
-        wallet: loadWallet, upid: loadUpid, gifts: loadGifts,
+        wallet: function(){ loadWallet(); loadPendingRecharges(); },
+        upid: loadUpid, gifts: loadGifts,
         analytics: loadAnalytics, notifications: loadNotifications
     };
     if (loaders[page]) loaders[page]();
@@ -1121,7 +1145,9 @@ function showPage(page) {
 function refreshCurrentPage() {
     const loaders = {
         dashboard: loadDashboard, users: loadUsers, hosts: loadHosts,
-        calls: loadCalls, wallet: loadWallet, upid: loadUpid, gifts: loadGifts,
+        calls: loadCalls,
+        wallet: function(){ loadWallet(); loadPendingRecharges(); },
+        upid: loadUpid, gifts: loadGifts,
         analytics: loadAnalytics, notifications: loadNotifications
     };
     if (loaders[currentPage]) loaders[currentPage]();
@@ -1518,6 +1544,69 @@ async function creditUser() {
         document.getElementById('creditAmount').value = '';
     } else {
         showToast(data?.detail || 'Error', 'error');
+    }
+}
+
+// ===================== RECHARGE APPROVALS =====================
+async function loadPendingRecharges() {
+    const data = await api('/api/v1/wallet/admin/recharges?status=pending&limit=50');
+    if (!data) return;
+
+    document.getElementById('pendingRechargeCount').textContent = `${data.pending_count} pending`;
+
+    if (!data.recharges.length) {
+        document.getElementById('pendingRechargesBody').innerHTML =
+            '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;">No pending requests</td></tr>';
+        return;
+    }
+
+    document.getElementById('pendingRechargesBody').innerHTML = data.recharges.map(r => `
+        <tr>
+            <td>
+                <div style="font-weight:600;">${r.user_name || 'Unknown'}</div>
+                <div style="font-size:12px;color:var(--text-muted);">${r.user_mobile || r.user_id?.slice(-8) || ''}</div>
+            </td>
+            <td style="color:var(--success);font-weight:700;">₹${r.amount_inr}</td>
+            <td><span style="color:var(--warning);font-weight:700;">🪙 ${r.coins_to_credit}</span>
+                ${r.bonus_coins ? `<div style="font-size:11px;color:var(--text-muted);">+${r.bonus_coins} bonus</div>` : ''}
+            </td>
+            <td style="font-size:12px;font-family:monospace;">${r.transaction_ref || '<span style="color:var(--danger)">No ref!</span>'}</td>
+            <td style="font-size:12px;color:var(--text-muted);">${r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : '-'}</td>
+            <td>
+                <div style="display:flex;gap:6px;">
+                    <button class="btn btn-success btn-sm" onclick="approveRecharge('${r.id}', '₹${r.amount_inr}', ${r.coins_to_credit})">
+                        <i class="fas fa-check"></i> Approve
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectRecharge('${r.id}')">
+                        <i class="fas fa-times"></i> Reject
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function approveRecharge(id, amountLabel, coins) {
+    if (!confirm(`Approve recharge ${amountLabel} → ${coins} coins? Payment verify kar liya?`)) return;
+    const data = await api(`/api/v1/wallet/admin/recharges/${id}/approve`, 'POST');
+    if (data?.success) {
+        showToast(data.message, 'success');
+        loadPendingRecharges();
+        loadWallet();
+    } else {
+        showToast(data?.detail || 'Error approving', 'error');
+    }
+}
+
+async function rejectRecharge(id) {
+    const reason = prompt('Rejection reason:', 'Payment not verified');
+    if (reason === null) return;
+    const data = await api(`/api/v1/wallet/admin/recharges/${id}/reject`, 'POST', {reason});
+    if (data?.success) {
+        showToast('Recharge rejected', 'success');
+        loadPendingRecharges();
+    } else {
+        showToast(data?.detail || 'Error rejecting', 'error');
     }
 }
 

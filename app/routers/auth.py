@@ -111,6 +111,9 @@ async def login(
     await db.users.update_one({"_id": user["_id"]}, {"$set": update_data})
     token = create_access_token({"sub": str(user["_id"])})
 
+    # FIX: update ke baad fresh doc return karo — pehle stale (purana XP/level) data jaata tha
+    user = await db.users.find_one({"_id": user["_id"]})
+
     return {
         "success": True,
         "message": "Login successful",

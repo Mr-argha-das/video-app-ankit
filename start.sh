@@ -4,10 +4,17 @@ echo "================================"
 
 cd "$(dirname "$0")"
 
-# Create virtual environment if needed
-if [ ! -d "venv" ]; then
+# Create virtual environment if needed (ya existing toota hua ho)
+if [ ! -x "venv/bin/python" ]; then
     echo "📦 Creating virtual environment..."
     python3 -m venv venv
+fi
+
+# .env check — bina SECRET_KEY/ADMIN_PASSWORD ke app start nahi hogi
+if [ ! -f ".env" ]; then
+    echo "⚠️  .env not found — .env.example copy karke configure karo:"
+    cp .env.example .env
+    echo "   → .env banaya gaya. SECRET_KEY aur ADMIN_PASSWORD set karo phir wapas run karo."
 fi
 
 # Activate

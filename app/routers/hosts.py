@@ -69,7 +69,7 @@ async def get_host_detail(host_id: str, db=Depends(get_db)):
     """Get single host details"""
     try:
         host = await db.host_users.find_one({"_id": ObjectId(host_id), "is_active": True})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid host ID")
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
@@ -196,9 +196,13 @@ async def admin_update_host(
         update_data["preview_video"] = f"/static/uploads/hosts/videos/{filename}"
 
     try:
-        await db.host_users.update_one({"_id": ObjectId(host_id)}, {"$set": update_data})
-    except:
+        result = await db.host_users.update_one({"_id": ObjectId(host_id)}, {"$set": update_data})
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid host ID")
+
+    # FIX: pehle non-existent host pe bhi "Host updated" return ho jaata tha
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Host not found")
 
     updated = await db.host_users.find_one({"_id": ObjectId(host_id)})
     return {"success": True, "message": "Host updated", "host": serialize_doc(updated)}
@@ -208,7 +212,7 @@ async def admin_delete_host(host_id: str, db=Depends(get_db), admin=Depends(get_
     """Admin: Delete host"""
     try:
         result = await db.host_users.delete_one({"_id": ObjectId(host_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid host ID")
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Host not found")

@@ -36,7 +36,7 @@ async def initiate_call(
     # Check host exists
     try:
         host = await db.host_users.find_one({"_id": ObjectId(request.host_id), "is_active": True})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid host ID")
     if not host:
         raise HTTPException(status_code=404, detail="Host not found or inactive")
@@ -93,6 +93,11 @@ async def answer_call(call_id: str, db=Depends(get_db)):
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
 
+    # FIX: sirf initiated/ringing call hi answer ho sakti hai —
+    # ended call dobara "active" nahi honi chahiye
+    if call["status"] not in ["initiated", "ringing"]:
+        return {"success": False, "message": f"Call cannot be answered (status: {call['status']})"}
+
     now = datetime.utcnow()
     await db.call_logs.update_one(
         {"call_id": call_id},
@@ -117,45 +122,86 @@ async def billing_check(
     if str(current_user["_id"]) != call["caller_id"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
+    if not call.get("start_time"):
+        return {"success": False, "action": "end_call", "reason": "call_not_started"}
+
+    now = datetime.utcnow()
     price_per_minute = call["price_per_minute"]
 
-    # Deduct 1 minute cost
-    result = await deduct_wallet(
-        current_user["_id"],
-        price_per_minute,
-        f"Video Call - {call['host_name']} (1 min)",
-        db
-    )
+    # FIX: billing ab server-side time based hai.
+    # Pehle har /billing-check call pe bina time check ke 1 min kaat diya jaata tha
+    # (spam karne pe double-charge), aur billing-check na karne pe free baat hoti thi.
+    billed_minutes = call.get("duration_seconds", 0) // 60
+    elapsed_minutes = int(max(0, (now - call["start_time"]).total_seconds()) // 60)
+    minutes_due = elapsed_minutes - billed_minutes
 
-    if not result["success"]:
-        # Insufficient balance - end call
+    if minutes_due <= 0:
+        # Abhi naya full minute nahi hua — kuch charge nahi hoga, bas status batao
+        fresh = await db.users.find_one({"_id": current_user["_id"]})
+        balance = fresh.get("wallet_balance", 0) if fresh else 0
+        return {
+            "success": True,
+            "action": "continue",
+            "deducted": 0,
+            "minutes_billed": billed_minutes,
+            "new_balance": balance,
+            "reason": None,
+            "warning": None if balance > price_per_minute * 2 else f"Low balance! Only {int(balance / price_per_minute)} minute(s) remaining"
+        }
+
+    # Saare elapsed unbilled minutes charge karo — reconnect ke baad bhi
+    # koi free minute nahi milega
+    charged_minutes = 0
+    new_balance = None
+    last_fail_balance = 0
+    for _ in range(minutes_due):
+        result = await deduct_wallet(
+            current_user["_id"],
+            price_per_minute,
+            f"Video Call - {call['host_name']} (1 min)",
+            db
+        )
+        if not result["success"]:
+            last_fail_balance = result.get("balance", 0)
+            break
+        charged_minutes += 1
+        new_balance = result["new_balance"]
+
+    if charged_minutes > 0:
         await db.call_logs.update_one(
             {"call_id": request.call_id},
-            {"$set": {"status": "ended_insufficient_balance", "end_time": datetime.utcnow()}}
+            {
+                "$inc": {
+                    "duration_seconds": charged_minutes * 60,
+                    "total_cost": charged_minutes * price_per_minute
+                },
+                "$set": {"last_billing_check": now}
+            }
+        )
+
+    total_billed = billed_minutes + charged_minutes
+
+    if charged_minutes == 0:
+        # Ek bhi minute afford nahi hua — call end
+        await db.call_logs.update_one(
+            {"call_id": request.call_id},
+            {"$set": {"status": "ended_insufficient_balance", "end_time": now}}
         )
         return {
             "success": False,
             "action": "end_call",
             "reason": "insufficient_balance",
-            "balance": result.get("balance", 0)
+            "balance": last_fail_balance,
+            "minutes_billed": total_billed
         }
 
-    # Update call duration
-    await db.call_logs.update_one(
-        {"call_id": request.call_id},
-        {
-            "$inc": {"duration_seconds": 60, "total_cost": price_per_minute},
-            "$set": {"last_billing_check": datetime.utcnow()}
-        }
-    )
-
-    new_balance = result["new_balance"]
     can_continue = new_balance >= price_per_minute
 
     return {
         "success": True,
         "action": "continue" if can_continue else "end_call",
-        "deducted": price_per_minute,
+        "deducted": charged_minutes * price_per_minute,
+        "minutes_billed": total_billed,
         "new_balance": new_balance,
         "reason": None if can_continue else "balance_will_run_out_next_minute",
         "warning": None if new_balance > price_per_minute * 2 else f"Low balance! Only {int(new_balance / price_per_minute)} minute(s) remaining"
@@ -179,9 +225,43 @@ async def end_call(
         return {"success": False, "message": "Call already ended"}
 
     end_time = datetime.utcnow()
+    price_per_minute = call["price_per_minute"]
+
+    # FIX: Final settlement — call end hone se pehle jo full minutes elapsed hain
+    # par bill nahi hue, unhe charge karo. Pehle billing-check skip karke
+    # directly /end call karne pe wo minutes free ho jaate the.
+    if call.get("start_time"):
+        billed_minutes = call.get("duration_seconds", 0) // 60
+        elapsed_minutes = int(max(0, (end_time - call["start_time"]).total_seconds()) // 60)
+        minutes_due = elapsed_minutes - billed_minutes
+
+        settled_minutes = 0
+        for _ in range(max(0, minutes_due)):
+            result = await deduct_wallet(
+                current_user["_id"],
+                price_per_minute,
+                f"Video Call - {call['host_name']} (final settlement)",
+                db
+            )
+            if not result["success"]:
+                break
+            settled_minutes += 1
+
+        if settled_minutes:
+            await db.call_logs.update_one(
+                {"call_id": request.call_id},
+                {"$inc": {
+                    "duration_seconds": settled_minutes * 60,
+                    "total_cost": settled_minutes * price_per_minute
+                }}
+            )
+            # local copy bhi update karo taaki neeche stats sahi rahein
+            call["duration_seconds"] = call.get("duration_seconds", 0) + settled_minutes * 60
+            call["total_cost"] = call.get("total_cost", 0) + settled_minutes * price_per_minute
+
     duration_secs = call.get("duration_seconds", 0)
     if call.get("start_time"):
-        actual_secs = (end_time - call["start_time"]).seconds
+        actual_secs = int((end_time - call["start_time"]).total_seconds())
         duration_secs = max(duration_secs, actual_secs)
 
     update_data = {

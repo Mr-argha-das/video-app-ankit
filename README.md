@@ -16,7 +16,10 @@ uvicorn main:app --reload
 
 - **API Docs:** http://localhost:8000/docs
 - **Admin Panel:** http://localhost:8000/admin-panel
-- **Admin Login:** `admin` / `Admin@123`
+- **Admin Login:** `.env` ke `ADMIN_USERNAME` / `ADMIN_PASSWORD` se (default creds kabhi production me mat chhodo)
+
+> ⚠️ **Security:** `.env` git me commit mat karo. `.env.example` ko copy karke `.env` banao.
+> Agar pehle se real credentials git history me leak ho chuke hain, toh **MongoDB password aur SECRET_KEY rotate karo**.
 
 ---
 
@@ -63,8 +66,11 @@ uvicorn main:app --reload
 1. POST /calls/initiate  → get call_id
 2. POST /calls/answer/{call_id}  → call starts
 3. Every 60 seconds → POST /calls/billing-check {"call_id": "..."}
+   - Server-side time based billing: sirf elapsed full minutes charge hote hain
+     (spam-safe, aur skipped checks bhi catch ho jaate hain)
    - Response: {"action": "continue"} or {"action": "end_call", "reason": "insufficient_balance"}
 4. POST /calls/end {"call_id": "...", "rating": 5}
+   - End pe final settlement: unbilled elapsed minutes auto-charge
 ```
 
 ### 💰 WALLET — `/api/v1/wallet`
@@ -73,10 +79,22 @@ uvicorn main:app --reload
 |--------|----------|-------------|
 | GET | `/wallet/balance` | Current balance |
 | GET | `/wallet/packages` | Coin packages list |
-| POST | `/wallet/recharge` | Recharge wallet `{"amount": 199, "payment_method": "upi"}` |
+| POST | `/wallet/recharge` | Create recharge request `{"amount": 199, "payment_method": "upi", "transaction_ref": "UPI-UTR"}` — status **pending**, coins only after admin approval |
+| GET | `/wallet/my-recharges` | My recharge request statuses |
 | GET | `/wallet/transactions` | Transaction history |
 | POST | `/wallet/admin/credit` | Admin: Credit coins to user |
 | GET | `/wallet/admin/all-transactions` | Admin: All transactions |
+| GET | `/wallet/admin/recharges?status=pending` | Admin: Recharge requests (verify UPI payment) |
+| POST | `/wallet/admin/recharges/{id}/approve` | Admin: Approve → coins credited |
+| POST | `/wallet/admin/recharges/{id}/reject` | Admin: Reject with reason |
+
+#### 💳 Recharge Flow (secure):
+```
+1. POST /wallet/recharge {"amount": 199} → request pending, app shows pay_to_upid
+2. User pays to that UPI ID, transaction_ref (UTR) submit karta hai
+3. Admin panel → Wallet → Pending Recharge Requests → verify → Approve
+4. Coins credited atomically (double-approve impossible)
+```
 
 #### 💳 Coin Packages:
 | Price | Coins | Bonus |
@@ -197,10 +215,19 @@ videocall-app/
 
 ## ⚙️ Environment Variables (.env)
 
+`.env.example` copy karke banao — `.env` git me commit mat karo:
+
 ```
 MONGODB_URL=mongodb://localhost:27017
 DATABASE_NAME=videocall_app
-SECRET_KEY=your-secret-key-here
+SECRET_KEY=your-secret-key-here-min-32-chars
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=Admin@123
+ADMIN_PASSWORD=your-strong-admin-password
 ```
+
+## 🔒 Security Notes
+
+- `/api/v1/upid/*` — add/update sirf **admin**, get ke liye login zaroori
+- Recharge coins sirf **admin approval** ke baad credit hote hain (UPI payment verify karke)
+- Wallet deductions **atomic** hain (race-safe)
+- Call billing **server-side time based** hai

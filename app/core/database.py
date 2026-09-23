@@ -19,18 +19,32 @@ async def connect_db():
     )
     db_instance.db = db_instance.client[settings.DATABASE_NAME]
 
-    # Connection test
-    await db_instance.client.admin.command("ping")
-    print(f"✅ MongoDB Atlas Connected — DB: {settings.DATABASE_NAME}")
+    # FIX: ping fail hone pe poora server crash mat karo — motor lazily reconnect
+    # karta hai, DB wapas aate hi requests kaam karne lagengi.
+    try:
+        await db_instance.client.admin.command("ping")
+        print(f"✅ MongoDB Connected — DB: {settings.DATABASE_NAME}")
+    except Exception as e:
+        print(f"⚠️  MongoDB unreachable at startup (will keep retrying on requests): {type(e).__name__}")
+        return
 
     # Indexes banao
     try:
         await db_instance.db.users.create_index("username", unique=True)
-        await db_instance.db.users.create_index("mobile", sparse=True)
+        # FIX: mobile unique hona chahiye par guests ka mobile NULL hota hai.
+        # Partial index sirf real mobile strings pe unique enforce karta hai,
+        # NULL/missing values (guests) ko ignore karta hai.
+        await db_instance.db.users.create_index(
+            "mobile",
+            unique=True,
+            partialFilterExpression={"mobile": {"$type": "string"}},
+            name="mobile_unique"
+        )
         await db_instance.db.host_users.create_index("name")
         await db_instance.db.transactions.create_index("user_id")
         await db_instance.db.call_logs.create_index([("caller_id", 1), ("created_at", -1)])
         await db_instance.db.gifts.create_index("category")
+        await db_instance.db.recharge_requests.create_index([("status", 1), ("created_at", -1)])
         print("✅ Indexes created")
     except Exception as e:
         print(f"⚠️  Index warning (non-fatal): {e}")

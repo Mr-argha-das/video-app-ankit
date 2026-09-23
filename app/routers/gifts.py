@@ -92,7 +92,7 @@ async def send_gift(
     # Get gift
     try:
         gift = await db.gifts.find_one({"_id": ObjectId(request.gift_id), "is_active": True})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid gift ID")
     if not gift:
         raise HTTPException(status_code=404, detail="Gift not found")
@@ -100,7 +100,7 @@ async def send_gift(
     # Get host
     try:
         host = await db.host_users.find_one({"_id": ObjectId(request.host_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid host ID")
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
@@ -210,7 +210,7 @@ async def admin_update_gift(
     if is_active is not None: update_data["is_active"] = is_active
     try:
         await db.gifts.update_one({"_id": ObjectId(gift_id)}, {"$set": update_data})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid gift ID")
     return {"success": True, "message": "Gift updated"}
 

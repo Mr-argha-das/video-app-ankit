@@ -39,8 +39,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
+    # allow_origins=["*"] ke saath allow_credentials=True browsers reject karte hain.
+    # Auth Authorization header (Bearer token) se hoti hai, cookies se nahi —
+    # isliye credentials False rakhna safe hai.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

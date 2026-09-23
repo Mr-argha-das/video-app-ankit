@@ -10,14 +10,18 @@ from app.core.database import get_db
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 admin_security = HTTPBearer()
+any_auth_security = HTTPBearer()
+
+def _truncate_bcrypt_input(password: str) -> str:
+    """bcrypt ki limit 72 *bytes* hai — characters nahi.
+    Unicode passwords ko sahi se handle karne ke liye byte-level truncate."""
+    return password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # 72 byte limit ke liye truncate karo
-    return pwd_context.verify(plain_password[:72], hashed_password)
+    return pwd_context.verify(_truncate_bcrypt_input(plain_password), hashed_password)
 
 def get_password_hash(password: str) -> str:
-    # bcrypt max 72 bytes accept karta hai — truncate karo
-    return pwd_context.hash(password[:72])
+    return pwd_context.hash(_truncate_bcrypt_input(password))
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -71,6 +75,40 @@ async def get_current_admin(
         raise credentials_exception
     return {"role": "admin"}
 
+async def get_any_authenticated(
+    credentials: HTTPAuthorizationCredentials = Depends(any_auth_security),
+    db=Depends(get_db)
+):
+    """Accepts either a normal user token OR an admin token.
+    Sensitive shared resources (jaise payment UPID) ke liye — logged-in koi bhi ho,
+    lekin unauthenticated nahi."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("role") == "admin":
+            return {"role": "admin"}
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    from bson import ObjectId
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise credentials_exception
+    if user is None:
+        raise credentials_exception
+    if user.get("is_blocked"):
+        raise HTTPException(status_code=403, detail="Your account has been blocked")
+    return user
+
 async def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
     db=Depends(get_db)
@@ -85,6 +123,6 @@ async def get_optional_user(
             from bson import ObjectId
             user = await db.users.find_one({"_id": ObjectId(user_id)})
             return user
-    except:
+    except Exception:
         pass
     return None
