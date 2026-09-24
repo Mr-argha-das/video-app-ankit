@@ -4,7 +4,7 @@ import '../config/app_config.dart';
 String mediaUrl(String? path) {
   if (path == null || path.isEmpty) return '';
   if (path.startsWith('http')) return path;
-  return '${AppConfig.baseUrl}$path';
+  return '${AppConfig.origin}$path';
 }
 
 num _num(dynamic v, [num fallback = 0]) => v is num ? v : fallback;

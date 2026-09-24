@@ -28,7 +28,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    final mobile = _mobile.text.trim();
+    var mobile = _mobile.text.replaceAll(RegExp(r'\D'), '');
+    if (mobile.length == 12 && mobile.startsWith('91')) mobile = mobile.substring(2);
+    if (mobile.length == 11 && mobile.startsWith('0')) mobile = mobile.substring(1);
     final password = _password.text;
     if (mobile.length != 10 || password.isEmpty) {
       showSnack(context, 'Valid 10-digit mobile aur password daalo', error: true);
@@ -41,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, error: true);
     } catch (e) {
-      if (mounted) showSnack(context, 'Server se connect nahi ho pa raha', error: true);
+      if (mounted) showSnack(context, 'Login failed: $e', error: true);
     }
   }
 
@@ -51,8 +53,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
       showSnack(context, 'Guest mode ON — calls/gifts ke liye register karo');
-    } catch (_) {
-      if (mounted) showSnack(context, 'Server se connect nahi ho pa raha', error: true);
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) showSnack(context, 'Guest login failed: $e', error: true);
     }
   }
 
@@ -78,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _mobile,
                 keyboardType: TextInputType.phone,
-                maxLength: 10,
+                maxLength: 14,
                 decoration: const InputDecoration(labelText: 'Mobile Number', prefixText: '+91 ', counterText: ''),
               ),
               const SizedBox(height: 14),

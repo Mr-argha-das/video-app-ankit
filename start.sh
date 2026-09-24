@@ -38,4 +38,5 @@ echo "   Admin Panel: http://localhost:8000/admin-panel"
 echo "   Admin Login: admin / Admin@123"
 echo ""
 
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# --proxy-headers: nginx/Caddy ke peeche sahi client IP + https scheme
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload --proxy-headers --forwarded-allow-ips="*"

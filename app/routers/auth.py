@@ -10,7 +10,7 @@ from app.core.security import (
     verify_password, get_password_hash, create_access_token,
     get_current_user, settings
 )
-from app.utils.helpers import serialize_doc, generate_guest_username, calculate_level, validate_mobile
+from app.utils.helpers import serialize_doc, generate_guest_username, calculate_level, validate_mobile, normalize_mobile
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -27,6 +27,12 @@ async def register(
     db=Depends(get_db)
 ):
     """Register new user with mobile number"""
+    name = (name or "").strip()
+    mobile = normalize_mobile(mobile)
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(password or "") < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
     if not validate_mobile(mobile):
         raise HTTPException(status_code=400, detail="Invalid mobile number. Must be 10-digit Indian number.")
     
@@ -88,6 +94,7 @@ async def login(
     db=Depends(get_db)
 ):
     """Login with mobile and password"""
+    mobile = normalize_mobile(mobile)
     user = await db.users.find_one({"mobile": mobile})
     if not user or not verify_password(password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid mobile or password")
@@ -211,6 +218,7 @@ async def convert_guest_to_user(
     if not current_user.get("is_guest"):
         raise HTTPException(status_code=400, detail="Account is already a full account")
 
+    mobile = normalize_mobile(mobile)
     if not validate_mobile(mobile):
         raise HTTPException(status_code=400, detail="Invalid mobile number")
 

@@ -82,3 +82,17 @@ lib/
 - **Recharge = approval flow:** user UPI pe pay karta hai → request `pending` → admin panel (😎 `/admin-panel`) se approve → coins credit. App me "My Recharge Requests" me live status.
 - Guests ko Call/Gift/Wallet buttons pe upgrade sheet dikhti hai (`convert-guest`).
 - Balance har screen pe live — gift/call/billing sab `AuthProvider.updateBalance` se sync hote hain.
+
+## 🛠 Troubleshooting — Register / Login nahi ho raha
+
+- **Backend URL:** `lib/config/app_config.dart` me `baseUrl` sahi rakho, ya build pe pass karo:
+  `flutter run --dart-define=API_BASE_URL=https://your-domain.com` (trailing `/` nahi).
+  Server domain/SSL (nginx, Caddy) ke peeche hai toh **`https://`** use karo.
+- App ab server ke `http → https` redirects khud follow karta hai (token aur body ke saath).
+  Pehle Dart POST (register/login) redirect follow nahi karta tha aur GET pe token gir jaata tha
+  → register fail + server log me `GET /api/v1/auth/me 403`.
+- Error snackbar me ab asli wajah dikhti hai (server message / connection error).
+- **Release APK:** `android/app/src/main/AndroidManifest.xml` me
+  `<uses-permission android:name="android.permission.INTERNET"/>` zaroor ho; `http://` backend ke liye
+  `<application android:usesCleartextTraffic="true" ...>` bhi chahiye.
+- Mobile number `+91 98765 43210` / `09876543210` jaise format me bhi chalega (auto 10-digit).

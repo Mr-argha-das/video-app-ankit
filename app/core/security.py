@@ -7,9 +7,20 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 from app.core.database import get_db
 
-security = HTTPBearer()
-admin_security = HTTPBearer()
-any_auth_security = HTTPBearer()
+# auto_error=False: token na ho toh FastAPI ka default 403 "Not authenticated"
+# nahi, balki 401 bhejte hain — app/admin panel 401 pe login screen dikhate hain.
+security = HTTPBearer(auto_error=False)
+admin_security = HTTPBearer(auto_error=False)
+any_auth_security = HTTPBearer(auto_error=False)
+
+
+def _require_credentials(credentials, detail: str = "Not authenticated"):
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 BCRYPT_ROUNDS = 12
 
@@ -45,6 +56,7 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db=Depends(get_db)
 ):
+    _require_credentials(credentials, "Not authenticated")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication credentials",
@@ -70,6 +82,7 @@ async def get_current_user(
 async def get_current_admin(
     credentials: HTTPAuthorizationCredentials = Depends(admin_security)
 ):
+    _require_credentials(credentials, "Admin authentication required")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Admin authentication required",
@@ -91,6 +104,7 @@ async def get_any_authenticated(
     """Accepts either a normal user token OR an admin token.
     Sensitive shared resources (jaise payment UPID) ke liye — logged-in koi bhi ho,
     lekin unauthenticated nahi."""
+    _require_credentials(credentials, "Not authenticated")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required",
