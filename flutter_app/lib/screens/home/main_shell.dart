@@ -31,12 +31,13 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
         items: const [
-          BottomNavigationBarItem(icon: Text('🏠', style: TextStyle(fontSize: 22)), label: 'Discover'),
-          BottomNavigationBarItem(icon: Text('🎯', style: TextStyle(fontSize: 22)), label: 'Match'),
-          BottomNavigationBarItem(icon: Text('🤖', style: TextStyle(fontSize: 22)), label: 'Priya'),
-          BottomNavigationBarItem(icon: Text('💰', style: TextStyle(fontSize: 22)), label: 'Wallet'),
-          BottomNavigationBarItem(icon: Text('👤', style: TextStyle(fontSize: 22)), label: 'Profile'),
+          BottomNavigationBarItem(icon: Text('🔥', style: TextStyle(fontSize: 24)), label: 'Vibes'),
+          BottomNavigationBarItem(icon: Text('💞', style: TextStyle(fontSize: 24)), label: 'Match'),
+          BottomNavigationBarItem(icon: Text('🤖', style: TextStyle(fontSize: 24)), label: 'Priya'),
+          BottomNavigationBarItem(icon: Text('💎', style: TextStyle(fontSize: 24)), label: 'Wallet'),
+          BottomNavigationBarItem(icon: Text('👤', style: TextStyle(fontSize: 24)), label: 'Me'),
         ],
       ),
     );

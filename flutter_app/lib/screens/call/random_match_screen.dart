@@ -20,27 +20,35 @@ class RandomMatchScreen extends StatefulWidget {
 class _RandomMatchScreenState extends State<RandomMatchScreen> {
   String? _interest;
   bool _searching = false;
-  Host? _matched;
-  String? _message;
 
   Future<void> _find() async {
     if (!await requireRegistered(context)) return;
-    setState(() {
-      _searching = true;
-      _matched = null;
-      _message = null;
-    });
+    setState(() => _searching = true);
     try {
       final h = await context.read<HostProvider>().randomMatch(interest: _interest);
-      setState(() {
-        _matched = h;
-        _message = h == null ? 'Abhi koi available nahi hai. Thodi der baad try karo! 😊' : 'Match mila! ${h.name} ke saath connect ho 🎉';
-      });
-    } catch (e) {
-      setState(() => _message = 'Match failed — server check karo');
-    } finally {
+      if (!mounted) return;
       setState(() => _searching = false);
+      if (h == null) {
+        showSnack(context, 'Abhi koi available nahi hai — thodi der baad try karo! 😊');
+      } else {
+        // 💘 Dating-app moment
+        await _showMatchOverlay(h);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _searching = false);
+        showSnack(context, 'Match failed — server check karo', error: true);
+      }
     }
+  }
+
+  Future<void> _showMatchOverlay(Host h) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      builder: (ctx) => _MatchOverlay(host: h),
+    );
   }
 
   Future<void> _simulateIncoming() async {
@@ -62,83 +70,99 @@ class _RandomMatchScreenState extends State<RandomMatchScreen> {
   Widget build(BuildContext context) {
     final hp = context.watch<HostProvider>();
     return Scaffold(
-      appBar: AppBar(title: const Text('🎯 Random Match', style: TextStyle(fontWeight: FontWeight.w900))),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            if (hp.interests.isNotEmpty)
-              SizedBox(
-                height: 44,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
+      body: Container(
+        decoration: const BoxDecoration(gradient: AppTheme.bgGradient),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Row(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: const Text('All'),
-                        selected: _interest == null,
-                        onSelected: (_) => setState(() => _interest = null),
-                        selectedColor: AppTheme.primary,
-                        backgroundColor: AppTheme.cardAlt,
-                        labelStyle: TextStyle(color: _interest == null ? Colors.white : AppTheme.textMuted, fontSize: 12),
-                        side: const BorderSide(color: AppTheme.border),
-                      ),
+                    ShaderMask(
+                      shaderCallback: (b) => AppTheme.brandGradient.createShader(b),
+                      child: const Text('Find your vibe 💞', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
                     ),
-                    ...hp.interests.map((it) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(it),
-                            selected: _interest == it,
-                            onSelected: (_) => setState(() => _interest = _interest == it ? null : it),
-                            selectedColor: AppTheme.primary,
-                            backgroundColor: AppTheme.cardAlt,
-                            labelStyle: TextStyle(color: _interest == it ? Colors.white : AppTheme.textMuted, fontSize: 12),
-                            side: const BorderSide(color: AppTheme.border),
-                          ),
-                        )),
+                    const Spacer(),
                   ],
                 ),
-              ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: _searching
-                  ? const _SearchingView()
-                  : _matched != null
-                      ? _MatchCard(host: _matched!)
+                const SizedBox(height: 16),
+                if (hp.interests.isNotEmpty)
+                  SizedBox(
+                    height: 44,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _chip('All', _interest == null, () => setState(() => _interest = null)),
+                        ...hp.interests.map((it) => _chip(it, _interest == it, () {
+                              setState(() => _interest = _interest == it ? null : it);
+                            })),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 20),
+                Expanded(
+                  child: _searching
+                      ? const _SearchingView()
                       : Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(_message != null ? '😅' : '🎲', style: const TextStyle(fontSize: 72)),
-                              const SizedBox(height: 16),
-                              Text(
-                                _message ?? 'Tap "Find Match" to meet a random host!',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(color: AppTheme.textMuted, fontSize: 15, height: 1.5),
+                              Container(
+                                width: 150,
+                                height: 150,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: AppTheme.brandGradient,
+                                  boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.5), blurRadius: 40, spreadRadius: 4)],
+                                ),
+                                child: const Center(child: Text('💘', style: TextStyle(fontSize: 72))),
                               ),
+                              const SizedBox(height: 26),
+                              const Text('Ready to meet someone?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 8),
+                              const Text('Tap the button — ek random online host\nse instantly match ho jaoge!',
+                                  textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textMuted, height: 1.5)),
                             ],
                           ),
                         ),
+                ),
+                GradientButton(
+                  emoji: '💞',
+                  label: _searching ? 'Finding your match…' : 'Find Match',
+                  onPressed: _searching ? null : _find,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _simulateIncoming,
+                    icon: const Text('📞'),
+                    label: const Text('Simulate incoming call'),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _searching ? null : _find,
-                icon: const Text('🔍'),
-                label: Text(_searching ? 'Searching…' : 'Find Match'),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _simulateIncoming,
-                icon: const Text('📞'),
-                label: const Text('Simulate incoming call'),
-              ),
-            ),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String label, bool active, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            gradient: active ? AppTheme.brandGradient : null,
+            color: active ? null : AppTheme.cardAlt,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: active ? Colors.transparent : AppTheme.border),
+          ),
+          child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
         ),
       ),
     );
@@ -154,70 +178,112 @@ class _SearchingView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(height: 64, width: 64, child: CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 3)),
-          SizedBox(height: 20),
-          Text('Perfect match dhoondh rahe hain… 💫', style: TextStyle(color: AppTheme.textMuted)),
+          SizedBox(height: 70, width: 70, child: CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 3)),
+          SizedBox(height: 22),
+          Text('Tumhare liye koi khaas dhoondh rahe hain… 💫', style: TextStyle(color: AppTheme.textMuted)),
         ],
       ),
     );
   }
 }
 
-class _MatchCard extends StatelessWidget {
+/// 💘 Full-screen "It's a Match!" overlay — signature dating moment.
+class _MatchOverlay extends StatelessWidget {
   final Host host;
-  const _MatchCard({required this.host});
+  const _MatchOverlay({required this.host});
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    final auth = context.read<AuthProvider>();
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: EdgeInsets.zero,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppTheme.primary.withOpacity(0.5)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 52,
-              backgroundColor: AppTheme.cardAlt,
-              backgroundImage: host.profilePic.isNotEmpty ? NetworkImage(host.profilePic) : null,
-              child: host.profilePic.isEmpty ? const Text('👤', style: TextStyle(fontSize: 44)) : null,
-            ),
-            const SizedBox(height: 12),
-            Text('${host.name}, ${host.age ?? '?'}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                LevelBadge(level: host.level),
-                const SizedBox(width: 8),
-                CoinChip(host.pricePerMinute),
-              ],
-            ),
-            if (host.interests.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(host.interests.take(3).join(' · '), style: const TextStyle(color: AppTheme.textMuted, fontSize: 12)),
-            ],
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: host.isOnline
-                    ? () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CallScreen(host: host)))
-                    : null,
-                icon: const Text('📹'),
-                label: const Text('Start Video Call'),
+        height: double.infinity,
+        decoration: const BoxDecoration(gradient: AppTheme.bgGradient),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const Spacer(),
+              ShaderMask(
+                shaderCallback: (b) => AppTheme.brandGradient.createShader(b),
+                child: const Text("IT'S A MATCH!",
+                    style: TextStyle(fontSize: 38, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, color: Colors.white, letterSpacing: 1.5)),
               ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => HostDetailScreen(host: host))),
-              child: const Text('View profile', style: TextStyle(color: AppTheme.textMuted)),
-            ),
-          ],
+              const SizedBox(height: 8),
+              const Text('Dono ne ek dusre ko vibe kiya 💘', style: TextStyle(color: AppTheme.textMuted, fontSize: 15)),
+              const SizedBox(height: 44),
+              // Two hearts overlapping
+              SizedBox(
+                width: 240,
+                height: 150,
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: 0,
+                      child: Container(
+                        width: 140,
+                        height: 140,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppTheme.primary, width: 4),
+                        ),
+                        child: AvatarPhoto(url: auth.avatarUrl, size: 140, letter: '😊'),
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      child: Container(
+                        width: 140,
+                        height: 140,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppTheme.secondary, width: 4),
+                        ),
+                        child: AvatarPhoto(url: host.profilePic, size: 140, letter: '💃'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text('${host.name}, ${host.age ?? '?'}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('⭐ ${host.rating}', style: const TextStyle(color: AppTheme.textMuted)),
+                  const SizedBox(width: 12),
+                  Text('🪙 ${host.pricePerMinute % 1 == 0 ? host.pricePerMinute.toInt() : host.pricePerMinute}/min',
+                      style: const TextStyle(color: AppTheme.warning, fontWeight: FontWeight.w700)),
+                ],
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 0, 28, 40),
+                child: Column(
+                  children: [
+                    GradientButton(
+                      emoji: '📹',
+                      label: 'Start Video Call',
+                      onPressed: host.isOnline
+                          ? () {
+                              Navigator.of(context).pop();
+                              Navigator.of(context).push(MaterialPageRoute(builder: (_) => CallScreen(host: host)));
+                            }
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Baad me baat karta hoon', style: TextStyle(color: AppTheme.textMuted)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

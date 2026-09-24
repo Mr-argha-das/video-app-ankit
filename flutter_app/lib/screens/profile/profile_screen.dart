@@ -70,21 +70,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             const SizedBox(height: 20),
-            // Header
+            // Header — dating style gradient-ring avatar
             Center(
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 48,
-                    backgroundColor: AppTheme.purple,
-                    backgroundImage: auth.avatarUrl.isNotEmpty ? NetworkImage(auth.avatarUrl) : null,
-                    child: auth.avatarUrl.isEmpty
-                        ? Text(auth.displayName.isNotEmpty ? auth.displayName[0].toUpperCase() : '?',
-                            style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900))
-                        : null,
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: AppTheme.brandGradient,
+                      boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.45), blurRadius: 20)],
+                    ),
+                    child: CircleAvatar(
+                      radius: 46,
+                      backgroundColor: AppTheme.cardAlt,
+                      backgroundImage: auth.avatarUrl.isNotEmpty ? NetworkImage(auth.avatarUrl) : null,
+                      child: auth.avatarUrl.isEmpty
+                          ? Text(auth.displayName.isNotEmpty ? auth.displayName[0].toUpperCase() : '?',
+                              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900))
+                          : null,
+                    ),
                   ),
                   const SizedBox(height: 10),
-                  Text(auth.displayName, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+                  Text(auth.displayName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 4),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
