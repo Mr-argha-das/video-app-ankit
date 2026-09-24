@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Body
 from datetime import datetime, timedelta
 from bson import ObjectId
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import get_current_admin, get_password_hash, settings, create_admin_token
-from app.utils.helpers import serialize_doc
+from app.utils.helpers import serialize_doc, get_bot_config, BOT_CONFIG_ID
 
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
@@ -319,3 +319,66 @@ async def get_notifications(db=Depends(get_db), admin=Depends(get_current_admin)
     """Admin: View sent notifications"""
     notifs = await db.notifications.find().sort("sent_at", -1).limit(50).to_list(50)
     return {"success": True, "notifications": [serialize_doc(n) for n in notifs]}
+
+
+# ===================== BOT CONFIG =====================
+# App ke chat bot (Priya) ki personality, greeting, background, interests aur
+# custom Q&A replies — sab admin yahan se set karta hai.
+
+class BotConfigUpdate(BaseModel):
+    bot_name: Optional[str] = None
+    bot_emoji: Optional[str] = None
+    tagline: Optional[str] = None
+    greeting: Optional[str] = None
+    personality: Optional[str] = None
+    about: Optional[str] = None
+    interests: Optional[List[str]] = None
+    custom_replies: Optional[List[dict]] = None
+
+
+@router.get("/bot-config")
+async def admin_get_bot_config(db=Depends(get_db), admin=Depends(get_current_admin)):
+    """Admin: current bot config (defaults ke saath merged)"""
+    cfg = await get_bot_config(db)
+    return {"success": True, "config": cfg}
+
+
+@router.put("/bot-config")
+async def admin_update_bot_config(
+    request: BotConfigUpdate,
+    db=Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Admin: bot config save karo (sirf bheje gaye fields update hote hain)"""
+    update = {}
+    for field, value in request.model_dump(exclude_unset=True).items():
+        if value is None:
+            continue
+        if field == "bot_name":
+            value = value.strip()
+            if not value:
+                raise HTTPException(status_code=400, detail="Bot name khaali nahi ho sakta")
+            value = value[:30]
+        elif field in ("greeting", "personality", "about", "tagline", "bot_emoji"):
+            value = value.strip()
+        elif field == "interests":
+            value = [str(i).strip()[:30] for i in value if str(i).strip()][:10]
+        elif field == "custom_replies":
+            cleaned = []
+            for pair in value[:50]:  # max 50 custom Q&A
+                keywords = [str(k).strip()[:40] for k in (pair.get("keywords") or []) if str(k).strip()]
+                reply = str(pair.get("reply") or "").strip()[:500]
+                if keywords and reply:
+                    cleaned.append({"keywords": keywords, "reply": reply})
+            value = cleaned
+        update[field] = value
+
+    if update:
+        await db.bot_config.update_one(
+            {"_id": BOT_CONFIG_ID},
+            {"$set": update},
+            upsert=True
+        )
+
+    cfg = await get_bot_config(db)
+    return {"success": True, "message": "Bot config saved", "config": cfg}

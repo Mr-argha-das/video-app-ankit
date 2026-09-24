@@ -7,7 +7,10 @@ import random
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.utils.helpers import serialize_doc, calculate_level, add_xp_for_action
+from app.utils.helpers import (
+    serialize_doc, calculate_level, add_xp_for_action,
+    get_bot_config, DEFAULT_BOT_CONFIG,
+)
 
 router = APIRouter(prefix="/chat", tags=["Chat & Random Match"])
 
@@ -73,12 +76,12 @@ BOT_RESPONSES = {
         "Kya scene hai! Sab theek hai na? 😊"
     ],
     "name": [
-        "Mera naam Priya hai! App ka friendly bot 😊 Tumhara naam kya hai?",
-        "Main Priya hoon! App ki virtual dost 🌸 Tum kya bolte ho?",
+        "Mera naam {bot_name} hai! App ki friendly dost 😊 Tumhara naam kya hai?",
+        "Main {bot_name} hoon! Tumhari virtual dost 🌸 Tum kya bolte ho?",
     ],
     "where": [
-        "Main toh app ke andar hoon! Har jagah available hoon tumhare liye 😄",
-        "Virtual world mein rehti hoon main! But feel real hoti hai na? 💫",
+        "Main toh yahin app mein hoon — jab chaho baat kar sakte ho 😄",
+        "Tumhare phone mein rehti hoon main! But feel real hoti hai na? 💫",
     ],
     "bye": [
         "Bye bye! Jaldi wapas aana! Miss karungi 👋❤️",
@@ -87,14 +90,61 @@ BOT_RESPONSES = {
     ]
 }
 
-def get_bot_response(user_message: str) -> str:
-    """Get contextual bot response based on message"""
+def _fmt(template: str, cfg: dict) -> str:
+    """Reply template me admin-config values (naam etc.) bharo."""
+    return (template or "").replace("{bot_name}", cfg.get("bot_name", "Priya"))
+
+def get_bot_response(user_message: str, cfg: dict = None) -> str:
+    """
+    Contextual bot response — admin-configured persona ke according.
+
+    Priority:
+    1. Admin ke custom_replies (keyword match) — sabse upar
+    2. Persona intents — naam / about / interests admin config se
+    3. Mood/topic intents (greeting, sad, happy, call, gift, bye…)
+    4. Default Hinglish fallbacks
+    """
+    if cfg is None:
+        cfg = DEFAULT_BOT_CONFIG
     msg_lower = user_message.lower()
-    
+
+    # 1) Admin-defined custom Q&A — jo admin ne sikhaya hai wahi bolo
+    for pair in cfg.get("custom_replies") or []:
+        keywords = [str(k).lower().strip() for k in (pair.get("keywords") or []) if str(k).strip()]
+        if keywords and any(k in msg_lower for k in keywords):
+            reply = (pair.get("reply") or "").strip()
+            if reply:
+                return _fmt(reply, cfg)
+
+    # 2) Persona intents — admin ke about/interests use karo
     if any(word in msg_lower for word in ["hi", "hello", "hey", "heyy", "namaste", "namaskar", "hii"]):
-        return random.choice(BOT_RESPONSES["greeting"])
+        return _fmt(random.choice(BOT_RESPONSES["greeting"]), cfg)
     elif any(word in msg_lower for word in ["kaise ho", "kaisa hai", "how are you", "theek", "kya haal"]):
         return random.choice(BOT_RESPONSES["how_are_you"])
+
+    elif any(word in msg_lower for word in ["naam", "name", "kaun", "who are you", "tum kaun", "aap kaun"]):
+        return _fmt(random.choice(BOT_RESPONSES["name"]), cfg)
+
+    elif any(word in msg_lower for word in ["kahan se", "kaha se", "where from", "where are you", "kahan rehti", "kahan rehte", "bare mein", "about you", "introduce"]):
+        # Admin ne background/about diya hai toh wahi batao
+        if (cfg.get("about") or "").strip():
+            return _fmt(cfg["about"].strip(), cfg)
+        return random.choice(BOT_RESPONSES["where"])
+
+    elif any(word in msg_lower for word in ["shauk", "hobby", "hobbies", "pasand", "interest", "favourite", "favorite", "kya karna pasand"]):
+        interests = cfg.get("interests") or []
+        if interests:
+            listing = ", ".join(str(i) for i in interests[:4])
+            return random.choice([
+                f"Mujhe {listing} bahut pasand hai! 😍 Tumhe kya pasand hai?",
+                f"Arey! Mujhe {listing} mein bahut maza aata hai ✨ Tum batayo?",
+            ])
+        return random.choice([
+            "Mujhe music sunna aur naye log se baat karna pasand hai! 🎵 Tumhe?",
+            "Chai aur late-night baatein — meri favourite! ☕ Tumhara kya scene hai?",
+        ])
+
+    # 3) Mood / topic intents
     elif any(word in msg_lower for word in ["bore", "bored", "boring", "kuch nahi", "timepass"]):
         return random.choice(BOT_RESPONSES["bored"])
     elif any(word in msg_lower for word in ["sad", "dukhi", "ro", "cry", "upset", "depressed", "bura"]):
@@ -105,14 +155,25 @@ def get_bot_response(user_message: str) -> str:
         return random.choice(BOT_RESPONSES["call"])
     elif any(word in msg_lower for word in ["gift", "present", "bhejo", "send"]):
         return random.choice(BOT_RESPONSES["gift"])
-    elif any(word in msg_lower for word in ["naam", "name", "kaun", "who are you", "tum kaun"]):
-        return random.choice(BOT_RESPONSES["name"])
-    elif any(word in msg_lower for word in ["kahan", "where", "kaha se", "location"]):
+    elif any(word in msg_lower for word in ["kahan", "where", "location"]):
         return random.choice(BOT_RESPONSES["where"])
-    elif any(word in msg_lower for word in ["bye", "alvida", "tata", "chal", "jaata", "jaati"]):
+    elif any(word in msg_lower for word in ["bye", "alvida", "tata", "chalta hoon", "chalti hoon", "jaata hoon", "jaati hoon", "good night", "gn"]):
         return random.choice(BOT_RESPONSES["bye"])
     else:
         return random.choice(BOT_RESPONSES["default"])
+
+@router.get("/bot/config")
+async def get_public_bot_config(db=Depends(get_db)):
+    """App ke liye bot branding — naam, emoji, tagline, greeting (admin-configured)."""
+    cfg = await get_bot_config(db)
+    return {
+        "success": True,
+        "bot_name": cfg["bot_name"],
+        "bot_emoji": cfg["bot_emoji"],
+        "tagline": cfg.get("tagline", "Hinglish AI dost"),
+        "greeting": _fmt(cfg["greeting"], cfg),
+    }
+
 
 @router.post("/bot/message")
 async def chat_with_bot(
@@ -121,11 +182,14 @@ async def chat_with_bot(
     db=Depends(get_db)
 ):
     """
-    Chat with Hinglish AI bot 'Priya'.
-    Bot responds in Hinglish (Hindi + English mix).
+    Chat with the Hinglish bot (default 'Priya').
+    Bot ki personality/replies admin panel se configure hote hain.
     """
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    cfg = await get_bot_config(db)
+    bot_name = cfg["bot_name"]
 
     # Get or create conversation
     conv_id = request.conversation_id
@@ -146,15 +210,15 @@ async def chat_with_bot(
         conv_doc = {
             "user_id": str(current_user["_id"]),
             "type": "bot",
-            "bot_name": "Priya",
+            "bot_name": bot_name,
             "messages": [],
             "created_at": datetime.utcnow()
         }
         result = await db.conversations.insert_one(conv_doc)
         conv_id = str(result.inserted_id)
 
-    # Generate bot response
-    bot_reply = get_bot_response(request.message)
+    # Generate bot response (admin-configured persona se)
+    bot_reply = get_bot_response(request.message, cfg)
 
     # Save messages
     user_msg = {
@@ -186,7 +250,7 @@ async def chat_with_bot(
         "success": True,
         "conversation_id": conv_id,
         "bot_reply": bot_reply,
-        "bot_name": "Priya",
+        "bot_name": bot_name,
         "your_message": request.message,
         "xp_gained": xp_gained
     }
@@ -225,14 +289,17 @@ async def start_new_bot_session(
     current_user=Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Start a fresh bot conversation"""
+    """Start a fresh bot conversation (greeting admin-configured hoti hai)"""
+    cfg = await get_bot_config(db)
+    bot_name = cfg["bot_name"]
+    greeting = _fmt(cfg["greeting"], cfg)
     conv_doc = {
         "user_id": str(current_user["_id"]),
         "type": "bot",
-        "bot_name": "Priya",
+        "bot_name": bot_name,
         "messages": [{
             "sender": "bot",
-            "message": "Heyy! Main Priya hoon! Kaise ho aaj? 😊 Kuch baat karte hain!",
+            "message": greeting,
             "timestamp": datetime.utcnow().isoformat()
         }],
         "created_at": datetime.utcnow()
@@ -241,8 +308,8 @@ async def start_new_bot_session(
     return {
         "success": True,
         "conversation_id": str(result.inserted_id),
-        "greeting": "Heyy! Main Priya hoon! Kaise ho aaj? 😊 Kuch baat karte hain!",
-        "bot_name": "Priya"
+        "greeting": greeting,
+        "bot_name": bot_name
     }
 
 # ========== RANDOM MATCH ==========

@@ -55,18 +55,23 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final botName = context.watch<ChatProvider>().botName;
+    final botEmoji = context.watch<ChatProvider>().botEmoji;
+    final botTagline = context.watch<ChatProvider>().botTagline;
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            const CircleAvatar(backgroundColor: AppTheme.purple, child: Text('🤖')),
+            CircleAvatar(backgroundColor: AppTheme.purple, child: Text(botEmoji, style: const TextStyle(fontSize: 18))),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Priya', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                Text('Online • Hinglish bot', style: TextStyle(fontSize: 11, color: AppTheme.success.withOpacity(0.9))),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(botName, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16), overflow: TextOverflow.ellipsis),
+                  Text('Online • $botTagline', style: TextStyle(fontSize: 11, color: AppTheme.success.withOpacity(0.9)), overflow: TextOverflow.ellipsis),
+                ],
+              ),
             ),
           ],
         ),
@@ -117,9 +122,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: TextField(
                       controller: _input,
                       textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText: 'Priya se kuch bhi poocho…',
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: InputDecoration(
+                        hintText: '$botName se kuch bhi poocho…',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       ),
                       onSubmitted: (_) => _send(),
                     ),

@@ -11,6 +11,7 @@ import 'providers/wallet_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_service.dart';
+import 'services/incoming_call_service.dart';
 import 'theme/app_theme.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -36,6 +37,9 @@ class _VideoCallAppState extends State<VideoCallApp> {
   late final GiftProvider giftP = GiftProvider(api, authP);
   late final ChatProvider chatP = ChatProvider(api, authP);
   late final LevelProvider levelP = LevelProvider(api);
+
+  /// Har ~3 min auto incoming call — MainShell start/stop karta hai.
+  late final IncomingCallService incomingCalls = IncomingCallService(api, authP, callP);
 
   @override
   void initState() {
@@ -67,6 +71,7 @@ class _VideoCallAppState extends State<VideoCallApp> {
         ChangeNotifierProvider.value(value: giftP),
         ChangeNotifierProvider.value(value: chatP),
         ChangeNotifierProvider.value(value: levelP),
+        Provider<IncomingCallService>.value(value: incomingCalls),
       ],
       child: MaterialApp(
         navigatorKey: navigatorKey,

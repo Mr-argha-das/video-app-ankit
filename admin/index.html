@@ -464,6 +464,9 @@
                     <div class="nav-item" onclick="showPage('notifications')">
                         <i class="fas fa-bell"></i> Notifications
                     </div>
+                    <div class="nav-item" onclick="showPage('botSettings')">
+                        <i class="fas fa-robot"></i> Bot Settings
+                    </div>
                 </div>
             </nav>
             <div class="sidebar-footer">
@@ -864,6 +867,65 @@
                 </div>
             </div>
 
+            <!-- BOT SETTINGS -->
+            <div class="page" id="page-botSettings">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">🤖 Bot Identity</span></div>
+                        <div class="card-body">
+                            <div class="form-field">
+                                <label>Bot Name</label>
+                                <input type="text" id="botName" placeholder="Priya" maxlength="30">
+                            </div>
+                            <div class="form-field">
+                                <label>Avatar Emoji</label>
+                                <input type="text" id="botEmoji" placeholder="🤖" maxlength="4" style="width:90px;">
+                            </div>
+                            <div class="form-field">
+                                <label>Tagline (app header subtitle)</label>
+                                <input type="text" id="botTagline" placeholder="Hinglish AI dost" maxlength="60">
+                            </div>
+                            <div class="form-field">
+                                <label>Greeting (new chat start message)</label>
+                                <textarea id="botGreeting" placeholder="Heyy! Main {bot_name} hoon! Kaise ho? 😊" rows="2"></textarea>
+                                <small style="color:var(--text-muted);">{bot_name} likhne pe bot ka naam aa jayega</small>
+                            </div>
+                            <div class="form-field">
+                                <label>Personality / Style</label>
+                                <input type="text" id="botPersonality" placeholder="friendly, warm aur caring" maxlength="120">
+                            </div>
+                            <div class="form-field">
+                                <label>About / Background ("kahan se ho / apne bare mein batao" ka jawab)</label>
+                                <textarea id="botAbout" placeholder="Main Mumbai se hoon, music aur movies meri jaan hai 🎵" rows="3"></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label>Interests (comma separated — "shauk kya hai" ka jawab)</label>
+                                <input type="text" id="botInterests" placeholder="music, movies, chai, travelling">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">💬 Custom Bot Replies (Q&amp;A)</span></div>
+                        <div class="card-body">
+                            <div class="form-field">
+                                <label>Har line: <code>keyword1, keyword2 =&gt; bot ka reply</code></label>
+                                <textarea id="botCustomReplies" rows="12" placeholder="video call, call karo => Mujhe call karo na, bahut maza aayega! 📹&#10;rate, price => Meri call rate sirf 10 coins/min hai 😉&#10;i love you, love you => Aww, you're so sweet! ❤️"></textarea>
+                                <small style="color:var(--text-muted);">
+                                    User ke message me keyword milte hi ye reply jayega (admin sikhaye hue jawab — sabse pehle match hote hain).
+                                    Reply me {bot_name} bhi use kar sakte ho.
+                                </small>
+                            </div>
+                            <button class="btn btn-primary" onclick="saveBotConfig()">
+                                <i class="fas fa-save"></i> Save Bot Settings
+                            </button>
+                            <button class="btn btn-secondary" onclick="loadBotConfig()" style="margin-left:8px;">
+                                <i class="fas fa-rotate-left"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 </div>
@@ -1120,7 +1182,8 @@ const pageTitles = {
     upid: ['UPI / UPID Settings', 'Manage your UPI payment ID for coin recharges'],
     gifts: ['Gifts', 'Manage gift catalog and statistics'],
     analytics: ['Analytics', 'Platform growth and revenue trends'],
-    notifications: ['Notifications', 'Send push notifications to users']
+    notifications: ['Notifications', 'Send push notifications to users'],
+    botSettings: ['Bot Settings', 'Configure chatbot name, personality & custom replies']
 };
 
 function showPage(page) {
@@ -1137,7 +1200,8 @@ function showPage(page) {
         users: loadUsers, hosts: loadHosts, calls: loadCalls,
         wallet: function(){ loadWallet(); loadPendingRecharges(); },
         upid: loadUpid, gifts: loadGifts,
-        analytics: loadAnalytics, notifications: loadNotifications
+        analytics: loadAnalytics, notifications: loadNotifications,
+        botSettings: loadBotConfig
     };
     if (loaders[page]) loaders[page]();
 }
@@ -1148,7 +1212,8 @@ function refreshCurrentPage() {
         calls: loadCalls,
         wallet: function(){ loadWallet(); loadPendingRecharges(); },
         upid: loadUpid, gifts: loadGifts,
-        analytics: loadAnalytics, notifications: loadNotifications
+        analytics: loadAnalytics, notifications: loadNotifications,
+        botSettings: loadBotConfig
     };
     if (loaders[currentPage]) loaders[currentPage]();
     showToast('Refreshed!', 'info');
@@ -1956,6 +2021,62 @@ function debounce(fn, delay) {
         clearTimeout(debounceTimers[fn]);
         debounceTimers[fn] = setTimeout(() => fn(...args), delay);
     };
+}
+
+// ===================== BOT SETTINGS =====================
+async function loadBotConfig() {
+    const data = await api('/admin/bot-config');
+    if (!data || !data.success) return;
+    const c = data.config || {};
+    document.getElementById('botName').value = c.bot_name || '';
+    document.getElementById('botEmoji').value = c.bot_emoji || '';
+    document.getElementById('botTagline').value = c.tagline || '';
+    document.getElementById('botGreeting').value = c.greeting || '';
+    document.getElementById('botPersonality').value = c.personality || '';
+    document.getElementById('botAbout').value = c.about || '';
+    document.getElementById('botInterests').value = (c.interests || []).join(', ');
+    document.getElementById('botCustomReplies').value = (c.custom_replies || [])
+        .map(p => `${(p.keywords || []).join(', ')} => ${p.reply}`).join('\n');
+}
+
+async function saveBotConfig() {
+    const lines = document.getElementById('botCustomReplies').value.split('\n');
+    const customReplies = [];
+    for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        const idx = t.indexOf('=>');
+        if (idx === -1) {
+            showToast(`Line ka format galat hai: "${t.slice(0, 40)}…" — use: keyword1, keyword2 => reply`, 'error');
+            return;
+        }
+        const keywords = t.slice(0, idx).split(',').map(k => k.trim()).filter(Boolean);
+        const reply = t.slice(idx + 2).trim();
+        if (!keywords.length || !reply) {
+            showToast(`Line adhoori hai: "${t.slice(0, 40)}…"`, 'error');
+            return;
+        }
+        customReplies.push({ keywords, reply });
+    }
+    const botName = document.getElementById('botName').value.trim();
+    if (!botName) { showToast('Bot name required hai', 'error'); return; }
+    const body = {
+        bot_name: botName,
+        bot_emoji: document.getElementById('botEmoji').value.trim() || '🤖',
+        tagline: document.getElementById('botTagline').value.trim(),
+        greeting: document.getElementById('botGreeting').value.trim(),
+        personality: document.getElementById('botPersonality').value.trim(),
+        about: document.getElementById('botAbout').value.trim(),
+        interests: document.getElementById('botInterests').value.split(',').map(s => s.trim()).filter(Boolean),
+        custom_replies: customReplies,
+    };
+    const data = await api('/admin/bot-config', 'PUT', body);
+    if (data?.success) {
+        showToast(`Bot "${botName}" saved! Ab app me nayi settings chalengi 🎉`, 'success');
+        loadBotConfig(); // cleaned values wapas dikhao
+    } else {
+        showToast(data?.detail || 'Save failed', 'error');
+    }
 }
 
 // Close modal on overlay click

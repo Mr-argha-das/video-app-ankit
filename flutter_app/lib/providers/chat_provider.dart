@@ -18,10 +18,30 @@ class ChatProvider extends ChangeNotifier {
   bool loading = false;
   bool sending = false;
   String botName = 'Priya';
+  String botEmoji = '🤖';
+  String botTagline = 'Hinglish AI dost';
+
+  /// Admin panel se configured bot branding (naam/emoji/tagline) lao.
+  /// MainShell bhi isse call karta hai taaki nav label update ho jaye.
+  Future<void> loadConfig() async {
+    try {
+      final data = await api.get('${AppConfig.apiPrefix}/chat/bot/config');
+      if (data is Map && data['success'] == true) {
+        final name = data['bot_name']?.toString();
+        if (name != null && name.trim().isNotEmpty) botName = name.trim();
+        final emoji = data['bot_emoji']?.toString();
+        if (emoji != null && emoji.trim().isNotEmpty) botEmoji = emoji.trim();
+        final tag = data['tagline']?.toString();
+        if (tag != null && tag.trim().isNotEmpty) botTagline = tag.trim();
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
 
   Future<void> init() async {
     loading = true;
     notifyListeners();
+    loadConfig(); // fire & forget — header/nav kabhi bhi refresh ho jayenge
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_convKey);
     if (saved != null) {
@@ -58,7 +78,7 @@ class ChatProvider extends ChangeNotifier {
     final conv = data['conversation'];
     final msgs = ((conv['messages'] ?? []) as List).map((e) => ChatMsg.fromJson(Map<String, dynamic>.from(e))).toList();
     if (msgs.isEmpty) {
-      messages = [ChatMsg(sender: 'bot', text: 'Heyy! Main Priya hoon! 😊', time: DateTime.now())];
+      messages = [ChatMsg(sender: 'bot', text: 'Heyy! Main $botName hoon! 😊', time: DateTime.now())];
     } else {
       messages = msgs;
     }

@@ -30,10 +30,13 @@ class CallProvider extends ChangeNotifier {
 
   Timer? _ticker;
   Timer? _billingTimer;
+  Timer? _connectTimer;
   bool _billingInFlight = false;
 
   bool get isActive => state == CallState.active;
+  bool get isConnecting => state == CallState.connecting;
 
+  /// 1) /initiate → 2) ~10 sec "Calling…" ringing → 3) /answer → active + billing.
   Future<void> startCall(Host h) async {
     reset();
     host = h;
@@ -44,24 +47,11 @@ class CallProvider extends ChangeNotifier {
       callId = data['call_id']?.toString();
       pricePerMinute = (data['price_per_minute'] as num?)?.toDouble() ?? h.pricePerMinute;
       balance = (data['your_balance'] as num?)?.toDouble() ?? auth.balance;
-
-      // Simulate ringing: call ko active mark karo
-      await api.postJson('${AppConfig.apiPrefix}/calls/answer/$callId', {});
-
-      state = CallState.active;
-      auth.updateBalance(balance);
-
-      // UI timer — har second
-      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-        elapsedSeconds++;
-        notifyListeners();
-      });
-      // Billing — har 60 sec (server elapsed minutes khud calculate karta hai)
-      _billingTimer = Timer.periodic(
-        const Duration(seconds: AppConfig.billingCheckSeconds),
-        (_) => _billingCheck(),
-      );
       notifyListeners();
+
+      // Ringing phase — connectingSeconds baad host "pick" karti hai.
+      // Billing tabhi shuru hoti hai jab call active ho (ringing free hai).
+      _connectTimer = Timer(const Duration(seconds: AppConfig.connectingSeconds), _answerNow);
     } on ApiException catch (e) {
       error = e.message;
       state = CallState.idle;
@@ -72,6 +62,47 @@ class CallProvider extends ChangeNotifier {
       state = CallState.idle;
       notifyListeners();
       rethrow;
+    }
+  }
+
+  /// Ringing khatam — server pe call active mark karo, billing shuru.
+  Future<void> _answerNow() async {
+    if (callId == null || state != CallState.connecting) return;
+    try {
+      await api.postJson('${AppConfig.apiPrefix}/calls/answer/$callId', {});
+    } catch (_) {
+      // network blip — local flow continue rakhte hain, billing-check server-time se hi settle hota hai
+    }
+    if (state != CallState.connecting) return; // beech me user ne cancel kiya
+    state = CallState.active;
+    auth.updateBalance(balance);
+
+    // UI timer — har second
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      elapsedSeconds++;
+      notifyListeners();
+    });
+    // Billing — har 60 sec (server elapsed minutes khud calculate karta hai)
+    _billingTimer = Timer.periodic(
+      const Duration(seconds: AppConfig.billingCheckSeconds),
+      (_) => _billingCheck(),
+    );
+    notifyListeners();
+  }
+
+  /// Ringing ke dauraan user ne call kaat di — server pe bhi end karo (initiated status),
+  /// koi paisa nahi kata ab tak.
+  Future<void> cancelConnecting() async {
+    if (state != CallState.connecting) return;
+    _connectTimer?.cancel();
+    _connectTimer = null;
+    final id = callId;
+    state = CallState.idle;
+    notifyListeners();
+    if (id != null) {
+      try {
+        await api.postJson('${AppConfig.apiPrefix}/calls/end', {'call_id': id});
+      } catch (_) {}
     }
   }
 
@@ -142,10 +173,12 @@ class CallProvider extends ChangeNotifier {
     return summary ?? {};
   }
 
-  /// Screen dispose — agar call active hai toh silently end karo (settlement server pe).
+  /// Screen dispose — agar call active/ringing hai toh silently end karo (settlement server pe).
   Future<void> forceEndIfActive({int? rating}) async {
     if (state == CallState.active) {
       await endCall(rating: rating);
+    } else if (state == CallState.connecting) {
+      await cancelConnecting();
     }
   }
 
@@ -154,6 +187,8 @@ class CallProvider extends ChangeNotifier {
     _ticker = null;
     _billingTimer?.cancel();
     _billingTimer = null;
+    _connectTimer?.cancel();
+    _connectTimer = null;
   }
 
   void reset() {

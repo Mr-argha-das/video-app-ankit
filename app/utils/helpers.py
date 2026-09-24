@@ -70,3 +70,37 @@ def add_xp_for_action(action: str) -> int:
 
 def validate_mobile(mobile: str) -> bool:
     return bool(re.match(r'^[6-9]\d{9}$', mobile))
+
+
+# ===================== BOT CONFIG (admin-configurable chat bot) =====================
+# Singleton doc in Mongo `bot_config` collection. Admin panel se edit hota hai —
+# bot ka naam, greeting, personality, background, interests aur custom Q&A replies
+# sab admin ke according chalta hai.
+
+BOT_CONFIG_ID = "priya_bot"
+
+DEFAULT_BOT_CONFIG = {
+    "bot_name": "Priya",
+    "bot_emoji": "🤖",
+    "tagline": "Hinglish AI dost",
+    # {bot_name} placeholder config ke naam se replace hota hai
+    "greeting": "Heyy! Main {bot_name} hoon! Kaise ho aaj? 😊 Kuch baat karte hain!",
+    "personality": "friendly, warm aur caring — short 1-2 line replies",
+    # Admin bot ka background/intro yahan likhta hai — "kahan se ho / kaun ho"
+    # type sawalon pe bot yahi batayega
+    "about": "",
+    # Bot ki pasand — "shauk kya hai / kya pasand hai" type sawalon pe use hota hai
+    "interests": [],
+    # Admin ke custom Q&A — [{"keywords": ["rate", "price"], "reply": "..."}]
+    # keyword match hote hi ye reply sabse pehle jayega
+    "custom_replies": [],
+}
+
+async def get_bot_config(db) -> dict:
+    """DB se bot config lao, defaults ke saath merge karke."""
+    cfg = await db.bot_config.find_one({"_id": BOT_CONFIG_ID}) or {}
+    merged = dict(DEFAULT_BOT_CONFIG)
+    for k, v in cfg.items():
+        if k != "_id" and v is not None:
+            merged[k] = v
+    return merged
