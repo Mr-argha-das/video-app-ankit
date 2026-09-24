@@ -1,27 +1,36 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 from app.core.database import get_db
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 admin_security = HTTPBearer()
 any_auth_security = HTTPBearer()
 
-def _truncate_bcrypt_input(password: str) -> str:
+BCRYPT_ROUNDS = 12
+
+def _truncate_bcrypt_input(password: str) -> bytes:
     """bcrypt ki limit 72 *bytes* hai — characters nahi.
-    Unicode passwords ko sahi se handle karne ke liye byte-level truncate."""
-    return password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+    Unicode passwords ko bhi sahi se handle karta hai (byte-level truncate).
+    NOTE: passlib ke bajaye direct bcrypt use karte hain —
+    passlib 1.7.4 bcrypt>=4.1 ke saath crash hota hai."""
+    return password.encode("utf-8")[:72]
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(_truncate_bcrypt_input(plain_password), hashed_password)
+    try:
+        return bcrypt.checkpw(_truncate_bcrypt_input(plain_password), hashed_password.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(_truncate_bcrypt_input(password))
+    return bcrypt.hashpw(
+        _truncate_bcrypt_input(password),
+        bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    ).decode("utf-8")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
