@@ -18,19 +18,25 @@ Future<bool> requireRegistered(BuildContext context) async {
   final go = await showModalBottomSheet<bool>(
     context: context,
     backgroundColor: AppTheme.card,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (ctx) => Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('🔒💘', style: TextStyle(fontSize: 48)),
+          const Text('🔒', style: TextStyle(fontSize: 48)),
           const SizedBox(height: 12),
-          const Text('Guests can\'t use this feature', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+          const Text('Guests can\'t use this feature', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           const Text('Calls, gifts aur wallet ke liye register karo', style: TextStyle(color: AppTheme.textMuted)),
           const SizedBox(height: 20),
-          GradientButton(label: 'Unlock full account', emoji: '🚀', onPressed: () => Navigator.of(ctx).pop(true)),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Unlock full account'),
+            ),
+          ),
         ],
       ),
     ),
@@ -74,7 +80,7 @@ class _HostDetailScreenState extends State<HostDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _startCall() async {
+  void _startCall() async {
     if (!await requireRegistered(context)) return;
     if (!mounted) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => CallScreen(host: h)));
@@ -83,181 +89,165 @@ class _HostDetailScreenState extends State<HostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(gradient: AppTheme.bgGradient),
-        child: CustomScrollView(
-          slivers: [
-            SliverAppBar(
-              expandedHeight: 480,
-              pinned: true,
-              backgroundColor: AppTheme.bg,
-              title: Text(h.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-              actions: [
-                if (h.isFeatured)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Center(child: GlassPill('⭐ Featured', color: AppTheme.warning, textColor: Colors.black)),
-                  ),
-              ],
-              flexibleSpace: FlexibleSpaceBar(
-                background: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    h.previewVideo.isNotEmpty && _vp != null && _vp!.value.isInitialized
-                        ? GestureDetector(
-                            onTap: () => setState(() => _vp!.value.isPlaying ? _vp!.pause() : _vp!.play()),
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                FittedBox(
-                                  fit: BoxFit.cover,
-                                  child: SizedBox(
-                                    width: _vp!.value.size.width,
-                                    height: _vp!.value.size.height,
-                                    child: VideoPlayer(_vp!),
-                                  ),
-                                ),
-                                if (!_vp!.value.isPlaying)
-                                  const Center(child: Icon(Icons.play_circle_fill, size: 78, color: Colors.white70)),
-                              ],
-                            ),
-                          )
-                        : h.profilePic.isNotEmpty
-                            ? CachedNetworkImage(imageUrl: h.profilePic, fit: BoxFit.cover)
-                            : Container(color: AppTheme.cardAlt, child: const Center(child: Text('💃', style: TextStyle(fontSize: 100)))),
-                    const IgnorePointer(child: DecoratedBox(decoration: BoxDecoration(gradient: AppTheme.photoOverlay))),
-                    // Bottom overlaid name block (dating style)
-                    Positioned(
-                      left: 20,
-                      right: 20,
-                      bottom: 20,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('${h.name}, ${h.age ?? '?'}',
-                              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white,
-                                  shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
-                          const SizedBox(height: 8),
-                          Row(
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 380,
+            pinned: true,
+            title: Text(h.name),
+            flexibleSpace: FlexibleSpaceBar(
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  h.previewVideo.isNotEmpty && _vp != null && _vp!.value.isInitialized
+                      ? GestureDetector(
+                          onTap: () => setState(() => _vp!.value.isPlaying ? _vp!.pause() : _vp!.play()),
+                          child: Stack(
+                            fit: StackFit.expand,
                             children: [
-                              GlassPill(
-                                h.isOnline ? '● Online' : '● Offline',
-                                color: h.isOnline ? AppTheme.success.withOpacity(0.25) : Colors.black38,
-                                textColor: h.isOnline ? AppTheme.success : AppTheme.textMuted,
+                              FittedBox(
+                                fit: BoxFit.cover,
+                                child: SizedBox(
+                                  width: _vp!.value.size.width,
+                                  height: _vp!.value.size.height,
+                                  child: VideoPlayer(_vp!),
+                                ),
                               ),
-                              const SizedBox(width: 8),
-                              GlassPill('⭐ ${h.rating} (${h.reviewCount})', color: Colors.black45),
-                              const SizedBox(width: 8),
-                              GlassPill('Lv.${h.level} ${h.levelTitle}', color: AppTheme.purple.withOpacity(0.45)),
+                              if (!_vp!.value.isPlaying)
+                                const Center(
+                                  child: Icon(Icons.play_circle_fill, size: 72, color: Colors.white70),
+                                ),
                             ],
                           ),
-                        ],
+                        )
+                      : h.profilePic.isNotEmpty
+                          ? CachedNetworkImage(imageUrl: h.profilePic, fit: BoxFit.cover)
+                          : Container(color: AppTheme.cardAlt, child: const Center(child: Text('👤', style: TextStyle(fontSize: 90)))),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.transparent, Colors.black54],
+                        begin: Alignment.center,
+                        end: Alignment.bottomCenter,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Stats row
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.card,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: AppTheme.border),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _stat('🪙', '${h.pricePerMinute % 1 == 0 ? h.pricePerMinute.toInt() : h.pricePerMinute}', 'per min'),
-                          _divider(),
-                          _stat('📞', '${h.totalCalls}', 'calls'),
-                          _divider(),
-                          _stat('⏱', '${h.totalMinutes}m', 'on cam'),
-                          _divider(),
-                          _stat('👀', h.genderEmoji, h.gender.isEmpty ? '—' : h.gender),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    if (h.bio.isNotEmpty) ...[
-                      const Text('💫 About me', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                      const SizedBox(height: 8),
-                      Text(h.bio, style: const TextStyle(color: AppTheme.textMuted, height: 1.55, fontSize: 14.5)),
-                    ],
-                    if (h.interests.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      const Text('❤️ Passions', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: h.interests
-                            .map((i) => Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${h.name}, ${h.age ?? '?'} ${h.genderEmoji}',
+                                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 9,
+                                  height: 9,
                                   decoration: BoxDecoration(
-                                    color: AppTheme.primary.withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: AppTheme.primary.withOpacity(0.5)),
+                                    shape: BoxShape.circle,
+                                    color: h.isOnline ? AppTheme.success : AppTheme.textMuted,
                                   ),
-                                  child: Text(i, style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600)),
-                                ))
-                            .toList(),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(h.isOnline ? 'Online now' : 'Offline',
+                                    style: TextStyle(fontSize: 13, color: h.isOnline ? AppTheme.success : AppTheme.textMuted)),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
+                      LevelBadge(level: h.level, title: h.levelTitle),
                     ],
-                    if (h.language != null && h.language!.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      const Text('🗣 Languages', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                      const SizedBox(height: 6),
-                      Text(h.language!, style: const TextStyle(color: AppTheme.textMuted, fontSize: 14.5)),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      _stat('⭐ ${h.rating}', '${h.reviewCount} reviews'),
+                      const SizedBox(width: 10),
+                      _stat('📞 ${h.totalCalls}', 'calls'),
+                      const SizedBox(width: 10),
+                      _stat('🪙 ${h.pricePerMinute % 1 == 0 ? h.pricePerMinute.toInt() : h.pricePerMinute}', 'per min'),
                     ],
-                    const SizedBox(height: 110),
+                  ),
+                  const SizedBox(height: 20),
+                  if (h.bio.isNotEmpty) ...[
+                    const Text('About', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                    const SizedBox(height: 6),
+                    Text(h.bio, style: const TextStyle(color: AppTheme.textMuted, height: 1.5)),
                   ],
-                ),
+                  if (h.interests.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('Interests', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: h.interests
+                          .map((i) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.purple.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: AppTheme.purple.withOpacity(0.4)),
+                                ),
+                                child: Text(i, style: const TextStyle(fontSize: 12, color: Color(0xFFB4AEF7))),
+                              ))
+                          .toList(),
+                    ),
+                  ],
+                  if (h.language != null && h.language!.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text('🗣 ${h.language}', style: const TextStyle(color: AppTheme.textMuted)),
+                  ],
+                  const SizedBox(height: 90),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-      // Floating bottom CTA — dating style
       bottomSheet: Container(
-        color: Colors.transparent,
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 22),
+        color: AppTheme.card,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
         child: SafeArea(
           top: false,
           child: Row(
             children: [
-              GestureDetector(
-                onTap: () async {
-                  if (!await requireRegistered(context)) return;
-                  if (!context.mounted) return;
-                  await showGiftSheet(context, hostId: h.id);
-                },
-                child: Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppTheme.purple,
-                    boxShadow: [BoxShadow(color: AppTheme.purple.withOpacity(0.5), blurRadius: 14)],
-                  ),
-                  child: const Center(child: Text('🎁', style: TextStyle(fontSize: 26))),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    if (!await requireRegistered(context)) return;
+                    if (!context.mounted) return;
+                    await showGiftSheet(context, hostId: h.id);
+                  },
+                  icon: const Text('🎁'),
+                  label: const Text('Gift'),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
-                child: GradientButton(
-                  emoji: '📹',
-                  label: h.isOnline
-                      ? 'Video Call · 🪙${h.pricePerMinute % 1 == 0 ? h.pricePerMinute.toInt() : h.pricePerMinute}/min'
-                      : 'Offline abhi',
+                flex: 2,
+                child: ElevatedButton.icon(
                   onPressed: h.isOnline ? _startCall : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    disabledBackgroundColor: AppTheme.cardAlt,
+                  ),
+                  icon: const Text('📹'),
+                  label: Text(h.isOnline ? 'Video Call · 🪙${h.pricePerMinute % 1 == 0 ? h.pricePerMinute.toInt() : h.pricePerMinute}/min' : 'Offline'),
                 ),
               ),
             ],
@@ -267,16 +257,23 @@ class _HostDetailScreenState extends State<HostDetailScreen> {
     );
   }
 
-  Widget _stat(String emoji, String value, String label) {
-    return Column(
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 18)),
-        const SizedBox(height: 3),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-        Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
-      ],
+  Widget _stat(String value, String label) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.border),
+        ),
+        child: Column(
+          children: [
+            Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+            const SizedBox(height: 2),
+            Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+          ],
+        ),
+      ),
     );
   }
-
-  Widget _divider() => Container(width: 1, height: 34, color: AppTheme.border);
 }

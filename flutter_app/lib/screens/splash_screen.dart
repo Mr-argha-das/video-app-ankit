@@ -23,7 +23,6 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _boot() async {
     final auth = context.read<AuthProvider>();
     await auth.init();
-    await Future.delayed(const Duration(milliseconds: 900)); // brand moment
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => auth.loggedIn ? const MainShell() : const LoginScreen()),
@@ -35,24 +34,23 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       body: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(gradient: AppTheme.brandGradient),
-        child: Column(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppTheme.bg, Color(0xFF1F1B3A)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 110,
-              height: 110,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white24),
-              child: const Center(child: Text('💘', style: TextStyle(fontSize: 58))),
-            ),
-            const SizedBox(height: 20),
-            const Text('VibeCall',
-                style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1)),
-            const SizedBox(height: 10),
-            const Text('Match karo. Milo. Video call karo ✨',
-                style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 40),
-            const CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+            Text('🎥', style: TextStyle(fontSize: 72)),
+            SizedBox(height: 16),
+            Text('VideoCall App', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.primary)),
+            SizedBox(height: 8),
+            Text('Connect. Talk. Earn levels. 🚀', style: TextStyle(color: AppTheme.textMuted)),
+            SizedBox(height: 32),
+            CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 3),
           ],
         ),
       ),
