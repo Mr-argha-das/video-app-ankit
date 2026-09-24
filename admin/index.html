@@ -658,7 +658,7 @@
                                     </select>
                                 </div>
                                 <div class="form-field">
-                                    <label>Incoming call every (seconds of app use)</label>
+                                    <label>Incoming call every (seconds of app use) <span class="hint">300 = 5 min</span></label>
                                     <input type="number" id="sIncomingInterval" min="30" max="3600">
                                 </div>
                             </div>
@@ -671,6 +671,21 @@
                                     <label>Auto-end if app stops syncing (seconds)</label>
                                     <input type="number" id="sGrace" min="15" max="600">
                                 </div>
+                            </div>
+                            <div class="form-field">
+                                <label>Host message when user taps Video Call <span class="hint">(sent instantly to the user's Inbox chat with that host)</span></label>
+                                <select id="sCallMsgEnabled">
+                                    <option value="true">Enabled ✅</option>
+                                    <option value="false">Disabled</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label>Message (default for all hosts) <span class="hint">placeholders: {user} {host} {price} — a host's own message overrides this</span></label>
+                                <textarea id="sCallMsg" rows="2"></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label>Message when balance is too low for the call</label>
+                                <textarea id="sCallMsgLow" rows="2"></textarea>
                             </div>
                             <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">
                                 💡 Billing is per second at the host's rate (e.g. 🪙10/min = 🪙0.167/sec) and starts only when the
@@ -1129,6 +1144,10 @@
             <div class="form-field">
                 <label>Greeting message</label>
                 <input type="text" id="hBotGreeting" placeholder="e.g. Heyy! Main Priya hoon 😊 Kaise ho?">
+            </div>
+            <div class="form-field">
+                <label>Message when a user taps Video Call <span class="hint">optional — {user} {host} {price}; empty = default from Priya &amp; Calls</span></label>
+                <input type="text" id="hCallMessage" placeholder="e.g. Hiii {user} 😍 Main {host}! Call connect ho rahi hai 💕">
             </div>
             <div class="form-field">
                 <label>Personality, background & interests</label>
@@ -1639,6 +1658,7 @@ async function editHost(id) {
     document.getElementById('hActiveWrap').style.display = 'block';
     document.getElementById('hBotEnabled').value = h.bot_enabled === false ? 'false' : 'true';
     document.getElementById('hBotGreeting').value = h.bot_greeting || '';
+    document.getElementById('hCallMessage').value = h.call_message || '';
     document.getElementById('hBotPersonality').value = h.bot_personality || '';
     document.getElementById('hBotInstructions').value = h.bot_instructions || '';
     renderHostMedia(h);
@@ -1681,6 +1701,7 @@ async function submitHost(e) {
     text('bio', 'hBio');
     text('description', 'hDescription');
     text('bot_greeting', 'hBotGreeting');
+    text('call_message', 'hCallMessage');
     text('bot_personality', 'hBotPersonality');
     text('bot_instructions', 'hBotInstructions');
     form.append('is_online', document.getElementById('hOnline').value);
@@ -1739,6 +1760,9 @@ async function loadSettings() {
     document.getElementById('sIncomingInterval').value = s.incoming_call_interval_seconds;
     document.getElementById('sRingTimeout').value = s.incoming_ring_timeout_seconds;
     document.getElementById('sGrace').value = s.heartbeat_grace_seconds;
+    document.getElementById('sCallMsgEnabled').value = s.call_message_enabled === false ? 'false' : 'true';
+    document.getElementById('sCallMsg').value = s.call_message || '';
+    document.getElementById('sCallMsgLow').value = s.call_message_low_balance || '';
     document.getElementById('sBotName').value = s.priya_bot?.name || '';
     document.getElementById('sBotGreeting').value = s.priya_bot?.greeting || '';
     document.getElementById('sBotPersonality').value = s.priya_bot?.personality || '';
@@ -1765,9 +1789,12 @@ async function saveSettings() {
         connecting_seconds: parseInt(document.getElementById('sConnecting').value || '10'),
         billing_tick_seconds: parseInt(document.getElementById('sBillingTick').value || '5'),
         incoming_call_enabled: document.getElementById('sIncomingEnabled').value === 'true',
-        incoming_call_interval_seconds: parseInt(document.getElementById('sIncomingInterval').value || '180'),
+        incoming_call_interval_seconds: parseInt(document.getElementById('sIncomingInterval').value || '300'),
         incoming_ring_timeout_seconds: parseInt(document.getElementById('sRingTimeout').value || '30'),
         heartbeat_grace_seconds: parseInt(document.getElementById('sGrace').value || '45'),
+        call_message_enabled: document.getElementById('sCallMsgEnabled').value === 'true',
+        call_message: document.getElementById('sCallMsg').value.trim(),
+        call_message_low_balance: document.getElementById('sCallMsgLow').value.trim(),
         priya_host_id: document.getElementById('sPriyaHost').value || null,
         priya_bot: {
             name: document.getElementById('sBotName').value.trim() || 'Priya',

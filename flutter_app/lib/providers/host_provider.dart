@@ -125,11 +125,4 @@ class HostProvider extends ChangeNotifier {
     if (data['success'] != true) return null;
     return Host.fromJson(Map<String, dynamic>.from(data['matched_host']));
   }
-
-  /// Random incoming call simulation.
-  Future<Host?> randomIncoming() async {
-    final data = await api.get('${AppConfig.apiPrefix}/calls/random-host');
-    if (data['success'] != true) return null;
-    return Host.fromJson(Map<String, dynamic>.from(data['host']));
-  }
 }

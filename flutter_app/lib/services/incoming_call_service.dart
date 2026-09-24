@@ -11,7 +11,7 @@ import '../screens/call/incoming_call_screen.dart';
 import 'api_service.dart';
 
 /// Shows an incoming host call roughly every N seconds (admin setting, default
-/// 180s = 3 min) while the user is actively using the app.
+/// 300s = 5 min) while the app is open and in use.
 ///
 /// Only *active usage* counts: time with the app in foreground, logged in
 /// (non-guest), and not already in a call or ringing. After a call / ring the
@@ -79,7 +79,7 @@ class IncomingCallService extends ChangeNotifier with WidgetsBindingObserver {
   void _tick() {
     if (ringing || _fetching) return;
     if (callP.isBusy || callP.state == CallState.ended) {
-      _activeSeconds = 0; // call ke baad fresh 3 min
+      _activeSeconds = 0; // call ke baad fresh 5 min
       return;
     }
     if (!_eligible) return;

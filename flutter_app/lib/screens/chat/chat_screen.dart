@@ -3,25 +3,28 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/models.dart';
-import '../../providers/app_settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
-import '../../providers/host_provider.dart';
+import '../../providers/inbox_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/recharge_prompt.dart';
 import '../../widgets/widgets.dart';
 import '../call/call_screen.dart';
 import '../home/host_detail_screen.dart';
 
-/// Priya page — AI chat (Hindi / English / Hinglish) + video call + wallet,
-/// all driven by the admin-configured persona/host.
+/// Chat page with one host (opened from the Inbox tab or a host profile).
 ///
-/// Used as the "Priya" bottom-nav tab, and can also be pushed with a
-/// [hostId] to chat with a specific host's persona (from the host profile).
+/// AI bot talks as the admin-configured host persona in Hindi / English /
+/// Hinglish. Header has the video call button + wallet chip. Host messages
+/// pushed by the backend (video call button) appear in this thread.
 class ChatScreen extends StatefulWidget {
+  /// null = default Priya persona.
   final String? hostId;
-  final bool pushed;
-  const ChatScreen({super.key, this.hostId, this.pushed = false});
+
+  /// Inbox row — used to render the header instantly while the thread loads.
+  final InboxItem? item;
+
+  const ChatScreen({super.key, this.hostId, this.item});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -43,12 +46,17 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final cp = context.read<ChatProvider>();
-      if (widget.pushed) {
-        cp.init(hostId: widget.hostId).then((_) => _scrollDown());
-      } else if (cp.messages.isEmpty) {
-        cp.init().then((_) => _scrollDown());
-      }
+      final it = widget.item;
+      context.read<InboxProvider>().markRead(widget.hostId);
+      context
+          .read<ChatProvider>()
+          .open(
+            hostId: widget.hostId,
+            fallback: it == null
+                ? null
+                : ChatPersona(name: it.name, hostId: it.hostId, isDefault: it.hostId == null, avatar: it.avatar, host: it.host),
+          )
+          .then((_) => _scrollDown(jump: true));
     });
   }
 
@@ -59,14 +67,14 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  void _scrollDown() {
+  void _scrollDown({bool jump = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.animateTo(
-          _scroll.position.maxScrollExtent + 80,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
+      if (!_scroll.hasClients) return;
+      final target = _scroll.position.maxScrollExtent + 80;
+      if (jump) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      } else {
+        _scroll.animateTo(target, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       }
     });
   }
@@ -82,49 +90,57 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollDown();
   }
 
+  /// Video call — har click backend tak jaata hai (host ka message Inbox me aata hai).
+  /// Balance kam ho toh CallScreen khud recharge prompt dikhata hai.
   Future<void> _startCall(Host host) async {
     if (!await requireRegistered(context)) return;
     if (!mounted) return;
-    final balance = context.read<AuthProvider>().balance;
-    if (balance < host.pricePerMinute) {
-      await showRechargePrompt(
-        context,
-        requiredCoins: host.pricePerMinute,
-        message: '${host.name} ko call karne ke liye kam se kam 🪙${host.priceLabel} (1 minute) chahiye. Wallet recharge karein.',
-      );
-      return;
-    }
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => CallScreen(host: host)));
+    if (!mounted) return;
+    await context.read<ChatProvider>().refresh(); // host ka call message dikhao
+    _scrollDown();
+  }
+
+  void _openProfile(Host host) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => HostDetailScreen(host: host)));
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final cp = context.watch<ChatProvider>();
-    final persona = cp.persona;
-    final host = cp.callHost;
+    // Provider kisi aur chat pe ho (race) toh purana data mat dikhao
+    final mine = cp.selectedHostId == widget.hostId;
+    final persona = mine ? cp.persona : null;
+    final host = mine ? cp.callHost : widget.item?.host;
+    final name = persona?.name ?? widget.item?.name ?? 'Chat';
+    final messages = mine ? cp.messages : const <ChatMsg>[];
+    final loading = !mine || (cp.loading && messages.isEmpty);
 
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: widget.pushed ? 0 : 12,
+        titleSpacing: 0,
         title: GestureDetector(
-          onTap: host == null
-              ? null
-              : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => HostDetailScreen(host: host))),
+          onTap: host == null ? null : () => _openProfile(host),
           child: Row(
             children: [
-              _avatar(persona, 20),
+              _avatar(persona?.avatar ?? widget.item?.avatar ?? '', 20, online: host?.isOnline ?? true),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(cp.botName,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                     Text(
-                      cp.sending ? 'typing…' : 'Online • Hindi · English · Hinglish',
-                      style: TextStyle(fontSize: 11, color: AppTheme.success.withOpacity(0.9)),
+                      mine && cp.sending
+                          ? 'typing…'
+                          : (host?.isOnline ?? true)
+                              ? 'Online • Hindi · English · Hinglish'
+                              : 'Offline • chat available',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: (host?.isOnline ?? true) ? AppTheme.success.withOpacity(0.9) : AppTheme.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -140,8 +156,8 @@ class _ChatScreenState extends State<ChatScreen> {
           if (host != null)
             IconButton(
               tooltip: 'Video call',
-              icon: const Icon(Icons.videocam_rounded, color: AppTheme.primary, size: 28),
-              onPressed: host.isOnline ? () => _startCall(host) : null,
+              icon: Icon(Icons.videocam_rounded, color: host.isOnline ? AppTheme.primary : AppTheme.textMuted, size: 28),
+              onPressed: host.isOnline ? () => _startCall(host) : () => showSnack(context, '${host.name} abhi offline hai'),
             ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: AppTheme.textMuted),
@@ -149,9 +165,7 @@ class _ChatScreenState extends State<ChatScreen> {
             onSelected: (v) {
               if (v == 'new') context.read<ChatProvider>().newSession();
               if (v == 'wallet') openWallet(context);
-              if (v == 'profile' && host != null) {
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => HostDetailScreen(host: host)));
-              }
+              if (v == 'profile' && host != null) _openProfile(host);
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'new', child: Text('🔄  New chat')),
@@ -163,28 +177,28 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          if (!widget.pushed) _personaStrip(cp),
           if (host != null) _callBanner(host, auth.balance),
           Expanded(
-            child: cp.loading && cp.messages.isEmpty
+            child: loading
                 ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(14),
-                    itemCount: cp.messages.length + (cp.sending ? 1 : 0),
-                    itemBuilder: (context, i) {
-                      if (i == cp.messages.length) {
-                        return _bubble(const _TypingDots(), isUser: false);
-                      }
-                      final m = cp.messages[i];
-                      return _bubble(
-                        Text(m.text, style: const TextStyle(fontSize: 14.5, height: 1.35)),
-                        isUser: m.isUser,
-                      );
-                    },
-                  ),
+                : mine && cp.error != null && messages.isEmpty
+                    ? EmptyView(emoji: '💬', title: 'Chat load nahi hui', subtitle: cp.error)
+                    : ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.all(14),
+                        itemCount: messages.length + (mine && cp.sending ? 1 : 0),
+                        itemBuilder: (context, i) {
+                          if (i == messages.length) return _bubble(const _TypingDots(), isUser: false);
+                          final m = messages[i];
+                          if (m.isCallMessage) return _callMessage(m);
+                          return _bubble(
+                            Text(m.text, style: const TextStyle(fontSize: 14.5, height: 1.35)),
+                            isUser: m.isUser,
+                          );
+                        },
+                      ),
           ),
-          if (!cp.loading && cp.messages.length <= 2) _quickReplyRow(),
+          if (!loading && messages.length <= 2) _quickReplyRow(),
           SafeArea(
             top: false,
             child: Container(
@@ -204,7 +218,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       maxLength: 1000,
                       decoration: InputDecoration(
                         counterText: '',
-                        hintText: '${cp.botName} se Hindi / English me baat karo…',
+                        hintText: '$name se Hindi / English me baat karo…',
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       ),
                       onSubmitted: (_) => _send(),
@@ -215,35 +229,26 @@ class _ChatScreenState extends State<ChatScreen> {
                     backgroundColor: AppTheme.primary,
                     child: IconButton(
                       icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                      onPressed: cp.sending ? null : () => _send(),
+                      onPressed: cp.sending || loading ? null : () => _send(),
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          if (!auth.isGuest && !widget.pushed)
-            Container(
-              width: double.infinity,
-              color: AppTheme.purple.withOpacity(0.12),
-              padding: const EdgeInsets.symmetric(vertical: 5),
-              child: const Text('Har message pe +1 XP milta hai ✨',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-            ),
         ],
       ),
     );
   }
 
-  Widget _avatar(ChatPersona? p, double radius, {bool online = true}) {
-    final url = p?.avatar ?? '';
+  Widget _avatar(String url, double radius, {bool online = true}) {
     return Stack(
       children: [
         CircleAvatar(
           radius: radius,
           backgroundColor: AppTheme.purple,
           backgroundImage: url.isNotEmpty ? CachedNetworkImageProvider(url) : null,
-          child: url.isEmpty ? Text('🤖', style: TextStyle(fontSize: radius * 0.9)) : null,
+          child: url.isEmpty ? Text('👩', style: TextStyle(fontSize: radius * 0.9)) : null,
         ),
         if (online)
           Positioned(
@@ -263,80 +268,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// Switch who you're chatting with: default Priya + hosts with chat enabled.
-  Widget _personaStrip(ChatProvider cp) {
-    final hosts = context.watch<HostProvider>().hosts;
-    final defaultHostId = cp.selectedHostId == null ? cp.persona?.hostId : null;
-    final others = hosts.where((h) => h.hasBot && h.id != defaultHostId).take(20).toList();
-    if (others.isEmpty) return const SizedBox.shrink();
-
-    Widget item({required String label, required String avatar, required bool selected, required VoidCallback onTap}) {
-      return GestureDetector(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: selected ? AppTheme.brandGradient : null,
-                  color: selected ? null : AppTheme.border,
-                ),
-                child: CircleAvatar(
-                  radius: 22,
-                  backgroundColor: AppTheme.cardAlt,
-                  backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
-                  child: avatar.isEmpty ? const Text('🤖', style: TextStyle(fontSize: 18)) : null,
-                ),
-              ),
-              const SizedBox(height: 3),
-              SizedBox(
-                width: 56,
-                child: Text(label,
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                      color: selected ? AppTheme.textMain : AppTheme.textMuted,
-                    )),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      height: 82,
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppTheme.border))),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        children: [
-          item(
-            label: cp.selectedHostId == null ? cp.botName : context.watch<AppSettingsProvider>().settings.priyaName,
-            avatar: cp.selectedHostId == null ? (cp.persona?.avatar ?? '') : '',
-            selected: cp.selectedHostId == null,
-            onTap: () {
-              if (cp.selectedHostId != null) cp.selectPersona(null).then((_) => _scrollDown());
-            },
-          ),
-          ...others.map((h) => item(
-                label: h.name,
-                avatar: h.profilePic,
-                selected: cp.selectedHostId == h.id,
-                onTap: () {
-                  if (cp.selectedHostId != h.id) cp.selectPersona(h.id).then((_) => _scrollDown());
-                },
-              )),
-        ],
-      ),
-    );
-  }
-
   Widget _callBanner(Host host, double balance) {
     final enough = balance >= host.pricePerMinute;
     final minutes = host.pricePerMinute > 0 ? (balance / host.pricePerMinute).floor() : 0;
@@ -344,9 +275,7 @@ class _ChatScreenState extends State<ChatScreen> {
       margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppTheme.primary.withOpacity(0.22), AppTheme.accent.withOpacity(0.12)],
-        ),
+        gradient: LinearGradient(colors: [AppTheme.primary.withOpacity(0.22), AppTheme.accent.withOpacity(0.12)]),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.primary.withOpacity(0.35)),
       ),
@@ -362,30 +291,65 @@ class _ChatScreenState extends State<ChatScreen> {
                     overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
                 const SizedBox(height: 2),
                 Text(
-                  enough
-                      ? '🪙${host.priceLabel}/min · ~$minutes min talk time'
-                      : '🪙${host.priceLabel}/min · balance kam hai',
+                  enough ? '🪙${host.priceLabel}/min · ~$minutes min talk time' : '🪙${host.priceLabel}/min · balance kam hai',
                   style: TextStyle(fontSize: 11.5, color: enough ? AppTheme.textMuted : AppTheme.danger),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          enough
-              ? ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    backgroundColor: AppTheme.success,
-                  ),
-                  onPressed: host.isOnline ? () => _startCall(host) : null,
-                  child: Text(host.isOnline ? 'Call' : 'Offline'),
-                )
-              : ElevatedButton(
-                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10)),
-                  onPressed: () => openWallet(context),
-                  child: const Text('Recharge'),
-                ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              backgroundColor: AppTheme.success,
+            ),
+            onPressed: host.isOnline ? () => _startCall(host) : null,
+            child: Text(host.isOnline ? 'Call' : 'Offline'),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// Host ka auto message (video call button dabane pe backend se).
+  Widget _callMessage(ChatMsg m) {
+    final low = m.kind == 'low_balance';
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+        decoration: BoxDecoration(
+          color: AppTheme.cardAlt,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+            bottomRight: Radius.circular(16),
+            bottomLeft: Radius.circular(4),
+          ),
+          border: Border.all(color: (low ? AppTheme.warning : AppTheme.primary).withOpacity(0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(low ? '💰 Video call request' : '📹 Video call',
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: low ? AppTheme.warning : AppTheme.primary)),
+            const SizedBox(height: 4),
+            Text(m.text, style: const TextStyle(fontSize: 14.5, height: 1.35)),
+            if (low) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 32,
+                child: OutlinedButton(
+                  onPressed: () => openWallet(context),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12)),
+                  child: const Text('Recharge', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

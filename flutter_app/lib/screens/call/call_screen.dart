@@ -372,6 +372,34 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
                 child: Text('🪙 ${h.priceLabel}/min  ·  Balance 🪙${_fmt(call.balance)}',
                     style: const TextStyle(color: AppTheme.warning, fontWeight: FontWeight.w700, fontSize: 13)),
               ),
+              // Call button dabate hi backend se aaya host ka message (Inbox me bhi save)
+              if (call.hostMessage != null) ...[
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.primary.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('💬', style: TextStyle(fontSize: 16)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(call.hostMessage!,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const Spacer(),
               Padding(
                 padding: const EdgeInsets.only(bottom: 44),

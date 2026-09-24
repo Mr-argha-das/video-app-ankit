@@ -11,11 +11,12 @@ Complete Flutter app for the FastAPI backend (`../main.py`). Saare backend endpo
 | Discover (featured + filters + pagination) | `GET /hosts/discover`, `/hosts/featured`, `/chat/random-match/interests` |
 | Host profile (photos carousel + fullscreen, videos, description, rate, Call / Chat) | `GET /hosts/{id}` |
 | **Video call** — 10s "Calling…/Connecting…" → host ka admin video, live balance, low-balance banner, auto-end + recharge prompt | `/calls/initiate` (402 → recharge) → `/calls/answer` → **`/calls/billing-check` har ~5 sec** → `/calls/end` (+rating) |
-| **Incoming calls** (app use karte waqt har ~3 min, Accept/Reject) | `GET /settings/app`, `GET /calls/random-host`, `/calls/incoming/respond` |
+| **Incoming calls** (app open ho toh har 5 min automatic, Accept/Reject) | `GET /settings/app`, `GET /calls/random-host`, `/calls/incoming/respond` |
 | Random match | `POST /chat/random-match` |
 | Wallet + UPI recharge | `GET /wallet/packages`, `POST /wallet/recharge` (**pending → admin approve**), `GET /upid/get` |
 | Gifts (in-call bhi) | `GET /gifts/categories`, `POST /gifts/send` |
-| **Priya page** — AI chat (Hindi/English/Hinglish), host personas switcher, video-call banner + button, wallet chip | `GET /chat/bot/persona`, `POST /chat/bot/message`, `/new-session`, `/history/{id}` |
+| **📥 Inbox tab** — hosts list (recent chats upar, unread badge, search) → tap → host chat page | `GET /chat/inbox` |
+| **Host chat page** — AI chat (Hindi/English/Hinglish), video-call button + banner, wallet chip, host ke call messages | `GET /chat/bot/thread`, `POST /chat/bot/message`, `/new-session` |
 | Levels + leaderboard | `GET /levels/my-level`, `/levels/leaderboard` |
 | Profile / history / guest→full | `PUT /auth/profile`, `GET /calls/history`, `POST /auth/convert-guest` |
 
@@ -59,7 +60,7 @@ lib/
 ├── models/models.dart      # Host, Gift, CoinPackage, Txn, Recharge, CallLog, ChatMsg
 ├── services/api_service.dart  # JWT + form/JSON/multipart + FastAPI error parsing
 ├── services/incoming_call_service.dart  # foreground timer → incoming call screen
-├── providers/              # auth, host, wallet, call, gift, chat, level, app_settings
+├── providers/              # auth, host, wallet, call, gift, chat, inbox, level, app_settings
 ├── widgets/recharge_prompt.dart  # low/zero balance → recharge bottom sheet
 └── screens/
     ├── splash_screen.dart
@@ -68,7 +69,7 @@ lib/
     ├── call/               # call_screen (connecting → video → billing), random_match, incoming_call
     ├── wallet/             # wallet + UPI recharge sheet
     ├── gifts/              # gift bottom sheet
-    ├── chat/               # Priya page (AI chat + call + wallet)
+    ├── chat/               # inbox_screen (hosts list) + chat_screen (AI chat + call + wallet)
     ├── profile/            # profile, edit, call history
     └── levels/             # leaderboard
 ```
@@ -76,8 +77,8 @@ lib/
 ## 💡 Notes
 
 - **Simulated calls:** backend me real WebRTC nahi hai — connecting screen (admin setting, default 10s) ke baad host ka admin-uploaded call video (ya preview / pehla video) loop hota hai. Billing bilkul real hai: per-second, server-side enforced; balance khatam → call auto-end + "balance khatam" notice + recharge sheet.
-- **Incoming calls:** sirf jab app foreground me ho, user call pe na ho, aur balance ≥ 1 min ho. Interval admin panel → *Priya & Calls* se.
-- **Priya page:** bot ki personality/greeting/instructions admin panel se aati hai; kisi host ka "AI Chat" on ho toh uska persona bhi strip me dikhta hai aur host profile pe 💬 Chat button aata hai.
+- **Incoming calls:** app open (foreground) ho aur user call pe na ho toh har 5 min automatic (logged-in users). Interval admin panel → *Priya & Calls* se.
+- **Inbox:** jin hosts ka "AI Chat" on hai woh list me aate hain; tap karo → us host ke persona se chat. Kisi host ko Video Call dabate hi uska message (backend se) Inbox me aata hai + connecting screen pe bhi dikhta hai.
 - **Recharge = approval flow:** user UPI pe pay karta hai → request `pending` → admin panel (😎 `/admin-panel`) se approve → coins credit. App me "My Recharge Requests" me live status.
 - Guests ko Call/Gift/Wallet buttons pe upgrade sheet dikhti hai (`convert-guest`).
 - Balance har screen pe live — gift/call/billing sab `AuthProvider.updateBalance` se sync hote hain.

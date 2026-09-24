@@ -1,95 +1,96 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import 'auth_provider.dart';
 
-/// Priya page chat — AI bot that talks as the admin-configured persona
-/// (default Priya persona, or a specific host's persona).
+/// Inbox → host chat. AI bot talks as the admin-configured host persona
+/// (or the default Priya persona when [hostId] is null).
 /// Understands & replies in Hindi, English or Hinglish.
+///
+/// Threads are server-side (`GET /chat/bot/thread?host_id=`) so host messages
+/// pushed by the backend (e.g. on the video call button) show up here too.
 class ChatProvider extends ChangeNotifier {
   final ApiService api;
   final AuthProvider auth;
   ChatProvider(this.api, this.auth);
 
-  /// Legacy key (default Priya) — purani chats preserve rehti hain.
-  static const _legacyKey = 'priya_conversation_id';
+  /// Chat me kuch naya hua (message bheja / thread khula) → Inbox refresh.
+  VoidCallback? onActivity;
 
   ChatPersona? persona;
 
-  /// null = Priya page default persona; else chatting with this host's persona.
+  /// Currently open chat: host id (null = default Priya persona).
   String? selectedHostId;
 
   List<ChatMsg> messages = [];
   String? conversationId;
   bool loading = false;
   bool sending = false;
-  bool _initialized = false;
+  String? error;
   int _loadToken = 0;
 
   String get botName => persona?.name ?? 'Priya';
   bool get aiPowered => persona?.aiPowered ?? false;
 
-  /// Host behind the current persona — used for the Priya page video call.
+  /// Host behind the open chat — used for the video call button.
   Host? get callHost => persona?.host;
 
-  String _key(String? hostId) => hostId == null ? _legacyKey : 'priya_conv_$hostId';
-
-  Future<void> init({String? hostId, bool force = false}) async {
-    if (!force && _initialized && hostId == selectedHostId && messages.isNotEmpty) return;
+  /// Open the chat with a host (from Inbox / host profile).
+  /// [fallback] = inbox data se turant header dikhane ke liye.
+  Future<void> open({String? hostId, ChatPersona? fallback}) async {
     final token = ++_loadToken;
-    _initialized = true;
     selectedHostId = hostId;
-    loading = true;
+    persona = fallback;
     messages = [];
     conversationId = null;
+    error = null;
+    loading = true;
     notifyListeners();
-
-    await _loadPersona(hostId);
-    if (token != _loadToken) return; // user ne beech me persona switch kar diya
-
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_key(selectedHostId));
-    var restored = false;
-    if (saved != null) {
-      try {
-        await loadHistory(saved);
-        if (token != _loadToken) return;
-        conversationId = saved;
-        restored = true;
-      } catch (_) {
-        await prefs.remove(_key(selectedHostId));
-      }
-    }
-    if (!restored) await newSession();
-    if (token != _loadToken) return;
-    loading = false;
-    notifyListeners();
+    await _fetchThread(token);
   }
 
-  /// Switch the Priya page to another persona (null = default Priya).
-  Future<void> selectPersona(String? hostId) => init(hostId: hostId);
+  /// Silent reload (e.g. call se wapas aaye → host ka call message dikhao).
+  Future<void> refresh() async {
+    if (loading) return;
+    await _fetchThread(++_loadToken, silent: true);
+  }
 
-  Future<void> _loadPersona(String? hostId) async {
+  Future<void> _fetchThread(int token, {bool silent = false}) async {
     try {
       final data = await api.get(
-        '${AppConfig.apiPrefix}/chat/bot/persona',
-        query: hostId == null ? null : {'host_id': hostId},
+        '${AppConfig.apiPrefix}/chat/bot/thread',
+        query: selectedHostId == null ? null : {'host_id': selectedHostId!},
       );
-      persona = ChatPersona.fromJson(Map<String, dynamic>.from(data['persona'] ?? {}));
-    } on ApiException catch (_) {
-      if (hostId != null) {
-        // Is host ke liye chat available nahi → default Priya
-        selectedHostId = null;
-        await _loadPersona(null);
+      if (token != _loadToken) return; // beech me dusri chat khul gayi
+      if (data['persona'] is Map) {
+        persona = ChatPersona.fromJson(Map<String, dynamic>.from(data['persona']));
       }
+      conversationId = data['conversation_id']?.toString();
+      final msgs = ((data['messages'] ?? []) as List)
+          .map((e) => ChatMsg.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      messages = msgs.isEmpty
+          ? [ChatMsg(sender: 'bot', text: persona?.greeting.isNotEmpty == true ? persona!.greeting : 'Heyy! Main $botName hoon 😊', time: DateTime.now())]
+          : msgs;
+      error = null;
+      onActivity?.call(); // unread clear hua
+    } on ApiException catch (e) {
+      if (token != _loadToken) return;
+      if (!silent) error = e.status == 403 ? 'Is host ke saath chat abhi available nahi hai' : e.message;
     } catch (_) {
-      // offline — purana persona hi rehne do
+      if (token != _loadToken) return;
+      if (!silent) error = 'Network issue — dobara try karo';
+    } finally {
+      if (token == _loadToken) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 
+  /// Fresh conversation with the same persona ("New chat" menu).
   Future<void> newSession() async {
     try {
       final data = await api.postJson('${AppConfig.apiPrefix}/chat/bot/new-session', {
@@ -102,8 +103,7 @@ class ChatProvider extends ChangeNotifier {
       messages = [
         ChatMsg(sender: 'bot', text: (data['greeting'] ?? 'Heyy! 😊').toString(), time: DateTime.now()),
       ];
-      final prefs = await SharedPreferences.getInstance();
-      if (conversationId != null) await prefs.setString(_key(selectedHostId), conversationId!);
+      onActivity?.call();
     } catch (_) {
       messages = [
         ChatMsg(sender: 'bot', text: persona?.greeting.isNotEmpty == true ? persona!.greeting : 'Heyy! Main $botName hoon 😊', time: DateTime.now()),
@@ -112,36 +112,29 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> loadHistory(String convId) async {
-    final data = await api.get('${AppConfig.apiPrefix}/chat/bot/history/$convId');
-    final conv = data['conversation'];
-    final msgs = ((conv['messages'] ?? []) as List).map((e) => ChatMsg.fromJson(Map<String, dynamic>.from(e))).toList();
-    messages = msgs.isEmpty ? [ChatMsg(sender: 'bot', text: 'Heyy! Main $botName hoon! 😊', time: DateTime.now())] : msgs;
-  }
-
   Future<void> send(String text) async {
     if (text.trim().isEmpty || sending) return;
     sending = true;
     messages.add(ChatMsg(sender: 'user', text: text, time: DateTime.now()));
     notifyListeners();
-    final hostAtSend = selectedHostId;
+    final token = _loadToken;
     try {
       final data = await api.postJson('${AppConfig.apiPrefix}/chat/bot/message', {
         'message': text,
         if (conversationId != null) 'conversation_id': conversationId,
         if (conversationId == null && selectedHostId != null) 'host_id': selectedHostId,
       });
-      if (hostAtSend != selectedHostId) return; // persona switch ho gaya
+      if (token != _loadToken) return; // chat badal gayi
       conversationId ??= data['conversation_id']?.toString();
-      final prefs = await SharedPreferences.getInstance();
-      if (conversationId != null) await prefs.setString(_key(selectedHostId), conversationId!);
       messages.add(ChatMsg(sender: 'bot', text: (data['bot_reply'] ?? '...').toString(), time: DateTime.now()));
-      // XP sync (+1 per message)
-      auth.refreshUser().catchError((_) {});
+      auth.refreshUser().catchError((_) {}); // XP sync (+1 per message)
+      onActivity?.call();
     } on ApiException catch (e) {
-      messages.add(ChatMsg(sender: 'bot', text: '⚠️ ${e.message}', time: DateTime.now()));
+      if (token == _loadToken) messages.add(ChatMsg(sender: 'bot', text: '⚠️ ${e.message}', time: DateTime.now()));
     } catch (e) {
-      messages.add(ChatMsg(sender: 'bot', text: 'Oops! Network issue ho gaya 😅 Phir try karo!', time: DateTime.now()));
+      if (token == _loadToken) {
+        messages.add(ChatMsg(sender: 'bot', text: 'Oops! Network issue ho gaya 😅 Phir try karo!', time: DateTime.now()));
+      }
     } finally {
       sending = false;
       notifyListeners();

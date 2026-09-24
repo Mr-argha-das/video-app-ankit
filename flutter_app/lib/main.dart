@@ -7,6 +7,7 @@ import 'providers/call_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/gift_provider.dart';
 import 'providers/host_provider.dart';
+import 'providers/inbox_provider.dart';
 import 'providers/level_provider.dart';
 import 'providers/wallet_provider.dart';
 import 'screens/auth/login_screen.dart';
@@ -35,7 +36,8 @@ class _VideoCallAppState extends State<VideoCallApp> {
   late final HostProvider hostP = HostProvider(api);
   late final WalletProvider walletP = WalletProvider(api, authP);
   late final AppSettingsProvider settingsP = AppSettingsProvider(api);
-  late final CallProvider callP = CallProvider(api, authP, settingsP);
+  // Video call button → host ka message Inbox me (backend) → badge refresh
+  late final CallProvider callP = CallProvider(api, authP, settingsP)..onHostMessage = () => inboxP.load();
   late final IncomingCallService incomingS = IncomingCallService(
     api: api,
     auth: authP,
@@ -44,7 +46,8 @@ class _VideoCallAppState extends State<VideoCallApp> {
     navigatorKey: navigatorKey,
   );
   late final GiftProvider giftP = GiftProvider(api, authP);
-  late final ChatProvider chatP = ChatProvider(api, authP);
+  late final InboxProvider inboxP = InboxProvider(api);
+  late final ChatProvider chatP = ChatProvider(api, authP)..onActivity = () => inboxP.load();
   late final LevelProvider levelP = LevelProvider(api);
 
   @override
@@ -77,6 +80,7 @@ class _VideoCallAppState extends State<VideoCallApp> {
         ChangeNotifierProvider.value(value: callP),
         ChangeNotifierProvider.value(value: incomingS),
         ChangeNotifierProvider.value(value: giftP),
+        ChangeNotifierProvider.value(value: inboxP),
         ChangeNotifierProvider.value(value: chatP),
         ChangeNotifierProvider.value(value: levelP),
       ],

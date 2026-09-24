@@ -128,22 +128,87 @@ async def _get_owned_conversation(db, conv_id: str, user_id: str) -> dict:
     return conv
 
 
-async def _create_conversation(db, user_id: str, persona: dict, conv_host_id: Optional[str]) -> dict:
+async def _create_conversation(db, user_id: str, persona: dict, conv_host_id: Optional[str],
+                               first_message: Optional[dict] = None) -> dict:
+    now = datetime.utcnow()
     conv_doc = {
         "user_id": user_id,
         "type": "bot",
         "host_id": conv_host_id,          # None = Priya default persona
         "bot_name": persona["name"],
-        "messages": [{
+        "messages": [first_message or {
             "sender": "bot",
             "message": persona["greeting"],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now.isoformat(),
         }],
-        "created_at": datetime.utcnow(),
+        "unread": 1 if first_message else 0,
+        "created_at": now,
+        "updated_at": now,
     }
     result = await db.conversations.insert_one(conv_doc)
     conv_doc["_id"] = result.inserted_id
     return conv_doc
+
+
+async def _latest_conversation(db, user_id: str, conv_host_id: Optional[str]) -> Optional[dict]:
+    """User ki us host ke saath sabse recent chat (Inbox thread)."""
+    convs = await db.conversations.find(
+        {"user_id": user_id, "type": "bot", "host_id": conv_host_id}
+    ).sort([("updated_at", -1), ("created_at", -1)]).limit(1).to_list(1)
+    return convs[0] if convs else None
+
+
+def _fill_template(tpl: str, user: dict, host: dict) -> str:
+    price = host.get("price_per_minute") or 0
+    first = ((user.get("name") or "").strip().split(" ") or [""])[0] or "dear"
+    return (tpl.replace("{user}", first)
+               .replace("{host}", host.get("name") or "")
+               .replace("{price}", f"{float(price):g}"))
+
+
+async def push_host_message(db, user: dict, host: dict, kind: str = "call") -> Optional[dict]:
+    """Host ki taraf se user ke Inbox me message daalo (e.g. user ne video call button dabaya).
+
+    Latest thread me append hota hai (na ho toh naya thread), unread +1.
+    Returns the message dict (or None if disabled / host chat off).
+    """
+    try:
+        cfg = await get_app_settings(db)
+        if not cfg.get("call_message_enabled", True) or not host.get("bot_enabled", True):
+            return None
+        if kind == "low_balance":
+            tpl = cfg.get("call_message_low_balance") or ""
+        else:
+            tpl = (host.get("call_message") or "").strip() or cfg.get("call_message") or ""
+        text = _fill_template(tpl, user, host).strip()
+        if not text:
+            return None
+        uid = str(user["_id"])
+        hid = str(host["_id"])
+        msg = {"sender": "bot", "message": text, "timestamp": datetime.utcnow().isoformat(), "kind": kind}
+        conv = await _latest_conversation(db, uid, hid)
+        if conv:
+            # Double-tap / baar baar button → same message 60 sec me dobara nahi
+            last = (conv.get("messages") or [{}])[-1]
+            if last.get("kind") == kind:
+                try:
+                    age = (datetime.utcnow() - datetime.fromisoformat(last.get("timestamp"))).total_seconds()
+                except Exception:
+                    age = 9999
+                if age < 60:
+                    return {**last, "conversation_id": str(conv["_id"]), "host_id": hid,
+                            "host_name": host.get("name"), "duplicate": True}
+            await db.conversations.update_one(
+                {"_id": conv["_id"]},
+                {"$push": {"messages": msg}, "$inc": {"unread": 1},
+                 "$set": {"updated_at": datetime.utcnow(), "bot_name": host.get("name")}},
+            )
+        else:
+            persona = {"name": host.get("name") or "Host", "greeting": text}
+            conv = await _create_conversation(db, uid, persona, hid, first_message=msg)
+        return {**msg, "conversation_id": str(conv["_id"]), "host_id": hid, "host_name": host.get("name")}
+    except Exception:
+        return None  # message fail hone se call kabhi nahi rukni chahiye
 
 
 # ======================= BOT ENDPOINTS =======================
@@ -235,7 +300,94 @@ async def get_bot_chat_history(
 ):
     """Get chat history with bot"""
     conv = await _get_owned_conversation(db, conversation_id, str(current_user["_id"]))
+    if conv.get("unread"):
+        await db.conversations.update_one({"_id": conv["_id"]}, {"$set": {"unread": 0}})
+        conv["unread"] = 0
     return {"success": True, "conversation": serialize_doc(conv)}
+
+
+@router.get("/bot/thread")
+async def get_bot_thread(
+    host_id: Optional[str] = Query(None),
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Open a chat from the Inbox: latest thread with this host (created if none) +
+    persona. Marks the thread as read."""
+    persona = await resolve_persona(db, host_id or None)
+    uid = str(current_user["_id"])
+    conv_host_id = host_id or None
+    conv = await _latest_conversation(db, uid, conv_host_id)
+    if not conv:
+        conv = await _create_conversation(db, uid, persona, conv_host_id)
+    elif conv.get("unread"):
+        await db.conversations.update_one({"_id": conv["_id"]}, {"$set": {"unread": 0}})
+    return {
+        "success": True,
+        "conversation_id": str(conv["_id"]),
+        "messages": conv.get("messages") or [],
+        "persona": persona_public(persona),
+    }
+
+
+@router.get("/inbox")
+async def chat_inbox(
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Inbox: saare chat-enabled hosts + har host ke saath last message & unread count.
+    Recent chats upar, baaki hosts (online pehle) neeche."""
+    uid = str(current_user["_id"])
+    cfg = await get_app_settings(db)
+    hosts = await db.host_users.find(
+        {"is_active": True, "bot_enabled": {"$ne": False}}
+    ).to_list(300)
+    convs = await db.conversations.find({"user_id": uid, "type": "bot"}).to_list(500)
+
+    def last_ts(c):
+        msgs = c.get("messages") or []
+        ts = msgs[-1].get("timestamp") if msgs else None
+        return ts or (c.get("updated_at") or c.get("created_at") or datetime.min).isoformat()
+
+    latest = {}
+    unread = {}
+    for c in convs:
+        key = c.get("host_id")
+        unread[key] = unread.get(key, 0) + int(c.get("unread") or 0)
+        if key not in latest or last_ts(c) > last_ts(latest[key]):
+            latest[key] = c
+
+    def item(host_key, name, avatar, host_doc):
+        c = latest.get(host_key)
+        last = (c.get("messages") or [{}])[-1] if c else {}
+        return {
+            "host_id": host_key,
+            "name": name,
+            "avatar": avatar,
+            "is_online": bool(host_doc.get("is_online")) if host_doc else True,
+            "host": public_host(host_doc) if host_doc else None,
+            "conversation_id": str(c["_id"]) if c else None,
+            "last_message": last.get("message"),
+            "last_sender": last.get("sender"),
+            "last_time": last_ts(c) if c else None,
+            "unread": unread.get(host_key, 0),
+        }
+
+    items = [item(str(h["_id"]), h.get("name"), h.get("profile_picture"), h) for h in hosts]
+    # Default Priya persona (jab koi host linked nahi) — pinned
+    pinned = []
+    if not cfg.get("priya_host_id"):
+        pb = cfg["priya_bot"]
+        pinned.append(item(None, pb["name"], None, None))
+
+    with_chat = sorted([i for i in items if i["last_time"]], key=lambda i: i["last_time"], reverse=True)
+    without = sorted([i for i in items if not i["last_time"]], key=lambda i: (not i["is_online"], (i["name"] or "").lower()))
+    result = pinned + with_chat + without
+    return {
+        "success": True,
+        "items": result,
+        "total_unread": sum(i["unread"] for i in result),
+    }
 
 
 @router.get("/bot/my-conversations")

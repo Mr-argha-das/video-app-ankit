@@ -255,19 +255,74 @@ class CallLogItem {
       );
 }
 
+/// Server `datetime.utcnow().isoformat()` strings have no timezone → treat as UTC.
+DateTime? parseServerTime(dynamic v) {
+  final raw = (v ?? '').toString();
+  if (raw.isEmpty) return null;
+  final hasZone = raw.endsWith('Z') || RegExp(r'[+-]\d\d:?\d\d$').hasMatch(raw);
+  return DateTime.tryParse(hasZone ? raw : '${raw}Z')?.toLocal();
+}
+
 class ChatMsg {
   final String sender; // 'user' | 'bot'
   final String text;
   final DateTime? time;
 
-  ChatMsg({required this.sender, required this.text, this.time});
+  /// '' = normal chat; 'call' / 'low_balance' = host ka auto message (video call button)
+  final String kind;
+
+  ChatMsg({required this.sender, required this.text, this.time, this.kind = ''});
 
   bool get isUser => sender == 'user';
+  bool get isCallMessage => kind == 'call' || kind == 'low_balance';
 
   factory ChatMsg.fromJson(Map<String, dynamic> j) => ChatMsg(
         sender: (j['sender'] ?? 'bot').toString(),
         text: (j['message'] ?? '').toString(),
-        time: DateTime.tryParse((j['timestamp'] ?? '').toString()),
+        time: parseServerTime(j['timestamp']),
+        kind: (j['kind'] ?? '').toString(),
+      );
+}
+
+/// Inbox row (GET /chat/inbox): a host (or default Priya) + last message.
+class InboxItem {
+  final String? hostId; // null = default Priya persona
+  final String name;
+  final String avatar;
+  final bool isOnline;
+  final Host? host;
+  final String? conversationId;
+  final String lastMessage;
+  final String lastSender;
+  final DateTime? lastTime;
+  final int unread;
+
+  const InboxItem({
+    required this.hostId,
+    required this.name,
+    this.avatar = '',
+    this.isOnline = true,
+    this.host,
+    this.conversationId,
+    this.lastMessage = '',
+    this.lastSender = '',
+    this.lastTime,
+    this.unread = 0,
+  });
+
+  bool get hasChat => lastTime != null;
+
+  factory InboxItem.fromJson(Map<String, dynamic> j) => InboxItem(
+        hostId: j['host_id']?.toString(),
+        name: (j['name'] ?? 'Host').toString(),
+        avatar: mediaUrl(j['avatar']?.toString()),
+        isOnline: j['is_online'] != false,
+        host: j['host'] is Map ? Host.fromJson(Map<String, dynamic>.from(j['host'])) : null,
+        conversationId: j['conversation_id']?.toString(),
+        lastMessage: (j['last_message'] ?? '').toString(),
+        lastSender: (j['last_sender'] ?? '').toString(),
+        lastTime: parseServerTime(j['last_time']),
+        unread: _num(j['unread']).toInt(),
       );
 }
 
@@ -313,7 +368,7 @@ class AppSettings {
     this.connectingSeconds = 10,
     this.billingTickSeconds = 5,
     this.incomingCallEnabled = true,
-    this.incomingCallIntervalSeconds = 180,
+    this.incomingCallIntervalSeconds = 300,
     this.incomingRingTimeoutSeconds = 30,
     this.priyaHostId,
     this.priyaName = 'Priya',
@@ -323,7 +378,7 @@ class AppSettings {
         connectingSeconds: _num(j['connecting_seconds'], 10).toInt(),
         billingTickSeconds: _num(j['billing_tick_seconds'], 5).toInt().clamp(2, 60).toInt(),
         incomingCallEnabled: j['incoming_call_enabled'] != false,
-        incomingCallIntervalSeconds: _num(j['incoming_call_interval_seconds'], 180).toInt(),
+        incomingCallIntervalSeconds: _num(j['incoming_call_interval_seconds'], 300).toInt(),
         incomingRingTimeoutSeconds: _num(j['incoming_ring_timeout_seconds'], 30).toInt(),
         priyaHostId: j['priya_host_id']?.toString(),
         priyaName: (j['priya_name'] ?? 'Priya').toString(),

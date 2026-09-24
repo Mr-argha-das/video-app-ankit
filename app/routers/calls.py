@@ -286,6 +286,9 @@ async def initiate_call(
 
     # Kam se kam 1 minute ka balance chahiye
     if user_balance < price:
+        if request.call_type == "outgoing":
+            from app.routers.chat import push_host_message
+            await push_host_message(db, current_user, host, kind="low_balance")
         raise HTTPException(
             status_code=402,
             detail=f"Insufficient balance. You need at least {price:g} coins for a 1-minute call. "
@@ -316,9 +319,16 @@ async def initiate_call(
     result = await db.call_logs.insert_one(call_doc)
     call_doc["_id"] = result.inserted_id
 
+    # User ne video call button dabaya → host ka message turant Inbox me
+    host_message = None
+    if request.call_type == "outgoing":
+        from app.routers.chat import push_host_message  # local import: circular avoid
+        host_message = await push_host_message(db, current_user, host, kind="call")
+
     return {
         "success": True,
         "message": "Call initiated. Connecting...",
+        "host_message": host_message,
         "call": serialize_doc(call_doc),
         "call_id": call_doc["call_id"],
         "call_type": request.call_type,

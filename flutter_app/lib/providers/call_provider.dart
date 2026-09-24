@@ -45,6 +45,12 @@ class CallProvider extends ChangeNotifier {
   final AppSettingsProvider settingsP;
   CallProvider(this.api, this.auth, this.settingsP);
 
+  /// Video call button → backend host ka message Inbox me daalta hai; Inbox refresh ke liye.
+  VoidCallback? onHostMessage;
+
+  /// Host ka message jo call button dabate hi aaya (connecting screen pe bubble).
+  String? hostMessage;
+
   CallState state = CallState.idle;
   Host? host;
   bool isIncoming = false;
@@ -130,6 +136,11 @@ class CallProvider extends ChangeNotifier {
         if (id != null) _endOnServer(id);
         return;
       }
+      final hm = data['host_message'];
+      if (hm is Map && (hm['message'] ?? '').toString().isNotEmpty) {
+        hostMessage = hm['message'].toString();
+        onHostMessage?.call();
+      }
       callId = data['call_id']?.toString();
       pricePerMinute = (data['price_per_minute'] as num?)?.toDouble() ?? h.pricePerMinute;
       _serverBalance = (data['your_balance'] as num?)?.toDouble() ?? auth.balance;
@@ -142,7 +153,10 @@ class CallProvider extends ChangeNotifier {
       state = CallState.idle;
       error = e.message;
       notifyListeners();
-      if (e.status == 402) throw InsufficientBalanceException(e.message);
+      if (e.status == 402) {
+        onHostMessage?.call(); // host ka "recharge kar lo" message aaya hoga
+        throw InsufficientBalanceException(e.message);
+      }
       rethrow;
     } catch (e) {
       state = CallState.idle;
@@ -347,6 +361,7 @@ class CallProvider extends ChangeNotifier {
     endMessage = null;
     error = null;
     summary = null;
+    hostMessage = null;
     _answering = false;
     _billingInFlight = false;
   }

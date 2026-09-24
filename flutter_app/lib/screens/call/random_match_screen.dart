@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/models.dart';
-import '../../providers/auth_provider.dart';
 import '../../providers/host_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/widgets.dart';
 import '../home/host_detail_screen.dart';
 import 'call_screen.dart';
-import 'incoming_call_screen.dart';
 
 class RandomMatchScreen extends StatefulWidget {
   const RandomMatchScreen({super.key});
@@ -40,21 +38,6 @@ class _RandomMatchScreenState extends State<RandomMatchScreen> {
       setState(() => _message = 'Match failed — server check karo');
     } finally {
       setState(() => _searching = false);
-    }
-  }
-
-  Future<void> _simulateIncoming() async {
-    if (!await requireRegistered(context)) return;
-    try {
-      final h = await context.read<HostProvider>().randomIncoming();
-      if (!mounted) return;
-      if (h == null) {
-        showSnack(context, 'Abhi koi host available nahi hai', error: true);
-        return;
-      }
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => IncomingCallScreen(host: h), fullscreenDialog: true));
-    } catch (e) {
-      if (mounted) showSnack(context, e.toString(), error: true);
     }
   }
 
@@ -127,15 +110,6 @@ class _RandomMatchScreenState extends State<RandomMatchScreen> {
                 onPressed: _searching ? null : _find,
                 icon: const Text('🔍'),
                 label: Text(_searching ? 'Searching…' : 'Find Match'),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _simulateIncoming,
-                icon: const Text('📞'),
-                label: const Text('Simulate incoming call'),
               ),
             ),
           ],

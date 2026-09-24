@@ -7,7 +7,6 @@ import '../../models/models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/host_provider.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/recharge_prompt.dart';
 import '../../widgets/widgets.dart';
 import '../auth/convert_guest_screen.dart';
 import '../call/call_screen.dart';
@@ -103,25 +102,18 @@ class _HostDetailScreenState extends State<HostDetailScreen> {
     super.dispose();
   }
 
+  /// Har click backend tak jaata hai → host ka message Inbox me aata hai.
+  /// Balance kam ho toh CallScreen (402) recharge prompt dikhata hai.
   Future<void> _startCall() async {
     if (!await requireRegistered(context)) return;
     if (!mounted) return;
     _vp?.pause();
-    final balance = context.read<AuthProvider>().balance;
-    if (balance < h.pricePerMinute) {
-      await showRechargePrompt(
-        context,
-        requiredCoins: h.pricePerMinute,
-        message: '${h.name} ko call karne ke liye kam se kam 🪙${h.priceLabel} (1 minute) chahiye. Wallet recharge karein.',
-      );
-      return;
-    }
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => CallScreen(host: h)));
   }
 
   void _openChat() {
     _vp?.pause();
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(hostId: h.id, pushed: true)));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(hostId: h.id)));
   }
 
   void _openPhotos(int index) {

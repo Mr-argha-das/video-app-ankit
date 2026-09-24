@@ -16,7 +16,7 @@ LEVELS_MAP = {1: "Newcomer", 2: "Explorer", 3: "Regular", 4: "Active", 5: "Popul
 # Admin-only fields — bot prompt/context kabhi public API me nahi jaana chahiye.
 PRIVATE_FIELDS = ("bot_personality", "bot_instructions")
 CLEARABLE_FIELDS = {"bio", "description", "city", "language", "interests",
-                    "bot_greeting", "bot_personality", "bot_instructions"}
+                    "bot_greeting", "bot_personality", "bot_instructions", "call_message"}
 
 
 def effective_call_video(host: dict) -> Optional[str]:
@@ -133,6 +133,7 @@ async def admin_add_host(
     # Bot / chat context
     bot_enabled: bool = Form(True),
     bot_greeting: Optional[str] = Form(None),
+    call_message: Optional[str] = Form(None),
     bot_personality: Optional[str] = Form(None),
     bot_instructions: Optional[str] = Form(None),
     # Media
@@ -177,6 +178,7 @@ async def admin_add_host(
         "videos": video_urls,
         "bot_enabled": bot_enabled,
         "bot_greeting": (bot_greeting or "").strip(),
+        "call_message": (call_message or "").strip()[:500],
         "bot_personality": (bot_personality or "").strip(),
         "bot_instructions": (bot_instructions or "").strip(),
         "is_active": True,
@@ -214,6 +216,7 @@ async def admin_update_host(
     is_online: Optional[bool] = Form(None),
     bot_enabled: Optional[bool] = Form(None),
     bot_greeting: Optional[str] = Form(None),
+    call_message: Optional[str] = Form(None),
     bot_personality: Optional[str] = Form(None),
     bot_instructions: Optional[str] = Form(None),
     # Existing gallery video ko call video banana ho toh uska URL bhejo
@@ -259,6 +262,7 @@ async def admin_update_host(
     if is_online is not None: update_data["is_online"] = is_online
     if bot_enabled is not None: update_data["bot_enabled"] = bot_enabled
     if bot_greeting is not None: update_data["bot_greeting"] = bot_greeting.strip()
+    if call_message is not None: update_data["call_message"] = call_message.strip()[:500]
     if bot_personality is not None: update_data["bot_personality"] = bot_personality.strip()
     if bot_instructions is not None: update_data["bot_instructions"] = bot_instructions.strip()
 

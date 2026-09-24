@@ -57,7 +57,7 @@ uvicorn main:app --reload
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/calls/initiate` | Start call `{"host_id": "...", "call_type": "outgoing"\|"incoming"}` — **402** agar balance < 1 min; returns `call_video`, `connecting_seconds`, `billing_tick_seconds` |
+| POST | `/calls/initiate` | Start call `{"host_id": "...", "call_type": "outgoing"\|"incoming"}` — **402** agar balance < 1 min; returns `call_video`, `connecting_seconds`, `billing_tick_seconds`, `host_message`. Outgoing pe host ka message turant user ke Inbox me (balance kam ho toh "recharge kar lo" wala) |
 | POST | `/calls/answer/{call_id}` | Connecting khatam → call active, billing shuru |
 | POST | `/calls/billing-check` | Har few sec (default 5s) — per-second deduction, returns `continue` / `low_balance` warning / `end_call` |
 | POST | `/calls/end` | End call, add rating (unanswered = free) |
@@ -82,16 +82,22 @@ uvicorn main:app --reload
 ```
 
 #### 📲 Incoming calls
-App open & use me ho toh har `incoming_call_interval_seconds` (default 180 = ~3 min, admin
+App open & use me ho toh har `incoming_call_interval_seconds` (default **300 = 5 min**, admin
 panel se change) pe `GET /calls/random-host` → Incoming screen (Accept / Reject, 30s ring).
-Accept → `initiate` with `call_type: "incoming"` → upar wala same flow. Balance < 1 min ho
-toh incoming call nahi aati. Reject/miss → `/calls/incoming/respond`.
+Accept → `initiate` with `call_type: "incoming"` → upar wala same flow (balance kam ho toh
+recharge prompt). Reject/miss → `/calls/incoming/respond`.
+
+#### 💬 Host message on Video Call button
+User kisi host ko video call kare → backend us host ki taraf se user ke Inbox thread me message
+daalta hai (unread +1). Text: host ka apna `call_message` (host modal) → warna global
+`call_message` (Priya & Calls page). Placeholders `{user}` `{host}` `{price}`. Balance kam ho
+toh `call_message_low_balance`. Same message 60 sec me dobara nahi (double-tap safe).
 
 ### ⚙️ APP SETTINGS — `/api/v1/settings`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/settings/app` | Public: connecting seconds, billing tick, incoming interval, Priya name/avatar |
+| GET | `/settings/app` | Public: connecting seconds, billing tick, incoming interval, Priya name |
 | GET | `/settings/admin` | Admin: saari settings (Priya bot personality/instructions bhi) |
 | PUT | `/settings/admin` | Admin: update (partial JSON) |
 
@@ -144,6 +150,8 @@ toh incoming call nahi aati. Reject/miss → `/calls/incoming/respond`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/chat/inbox` | Inbox: saare chat-enabled hosts + last message + unread (recent chats upar) |
+| GET | `/chat/bot/thread?host_id=` | Host ke saath latest chat thread (na ho toh naya) + persona; read mark karta hai |
 | GET | `/chat/bot/persona?host_id=` | Persona info (Priya default ya kisi host ka) — name, avatar, greeting, call host |
 | POST | `/chat/bot/message` | AI chat `{"message": "Heyy!", "conversation_id": null, "host_id": null}` — Hindi / English / Hinglish auto-detect |
 | GET | `/chat/bot/history/{conv_id}` | Get chat history |

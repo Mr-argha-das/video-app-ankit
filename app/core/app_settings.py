@@ -13,8 +13,15 @@ DEFAULTS = {
     "heartbeat_grace_seconds": 45,         # no billing sync for this long => call auto-closed
     # ---- Incoming calls ----
     "incoming_call_enabled": True,
-    "incoming_call_interval_seconds": 180,  # ~3 minutes of active app usage
+    "incoming_call_interval_seconds": 300,  # har 5 minute (app open & in use)
     "incoming_ring_timeout_seconds": 30,    # unanswered => missed
+    # ---- Host message on call button ----
+    # User kisi host ko video call kare → us host ka message turant Inbox chat me.
+    # Placeholders: {user} {host} {price}. Host ka apna "call_message" ho toh woh use hota hai.
+    "call_message_enabled": True,
+    "call_message": "Hiii {user} 😍 Main {host}! Tumhari video call aa rahi hai — bas connect ho rahi hoon 💕 Call ke baad yahan chat bhi kar sakte ho!",
+    # Balance kam ho tab call button dabane par
+    "call_message_low_balance": "Aww {user} 🥺 Mujhse video call karni hai? Bas 🪙{price}/min chahiye — wallet recharge kar lo, main wait kar rahi hoon 💕",
     # ---- Priya page / bot ----
     # Host whose profile/video/bot-context powers the Priya page (optional).
     "priya_host_id": None,
@@ -90,8 +97,10 @@ async def update_app_settings(db, patch: dict) -> dict:
             continue
         if k == "priya_host_id":
             v = v or None
-        if k == "incoming_call_enabled":
+        if k in ("incoming_call_enabled", "call_message_enabled"):
             v = bool(v)
+        if k in ("call_message", "call_message_low_balance"):
+            v = (v or "").strip()[:500] or DEFAULTS[k]
         clean[k] = v
     clean["updated_at"] = datetime.utcnow()
     await db.app_settings.update_one({"_id": "global"}, {"$set": clean}, upsert=True)

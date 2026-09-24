@@ -27,6 +27,9 @@ class AppSettingsUpdate(BaseModel):
     incoming_call_interval_seconds: Optional[int] = None
     incoming_ring_timeout_seconds: Optional[int] = None
     priya_host_id: Optional[str] = None
+    call_message_enabled: Optional[bool] = None
+    call_message: Optional[str] = None
+    call_message_low_balance: Optional[str] = None
     priya_bot: Optional[PriyaBotSettings] = None
 
 
