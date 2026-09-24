@@ -1,19 +1,46 @@
-from fastapi import APIRouter, HTTPException, Depends, Body, Query
+"""Video calls — outgoing + incoming, with continuous wallet billing.
+
+Flow (both outgoing and accepted incoming calls):
+
+    POST /calls/initiate            → call created (status=initiated), balance checked.
+                                      App shows "Calling… / Connecting…" for
+                                      `connecting_seconds` (default 10s). NOT billed.
+    POST /calls/answer/{call_id}    → host "picks up": status=active, billing clock starts,
+                                      app starts playing the host's admin-uploaded video.
+    POST /calls/billing-check       → every `billing_tick_seconds` (default 5s).
+                                      Server charges pro-rata per second
+                                      (rate/60 per second) for elapsed time and returns
+                                      `continue` or `end_call` (balance exhausted).
+    POST /calls/end                 → user hangs up; final settlement + rating.
+
+Billing is fully server-side & time based: spamming billing-check can't double
+charge, skipping it can't give free time (settled on next check / end), and if
+the app vanishes without heartbeats the call is closed after
+`heartbeat_grace_seconds` and billed only up to that point.
+"""
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timedelta
 from bson import ObjectId
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel
-import asyncio, random, uuid
+from pymongo import ReturnDocument
+import random, uuid
 
 from app.core.database import get_db
 from app.core.security import get_current_user, get_current_admin
+from app.core.app_settings import get_app_settings
 from app.utils.helpers import serialize_doc, calculate_level, add_xp_for_action
-from app.routers.wallet import deduct_wallet
+from app.routers.hosts import public_host, effective_call_video
 
 router = APIRouter(prefix="/calls", tags=["Video Calls"])
 
+IN_PROGRESS = ["initiated", "ringing", "active"]
+ENDED_STATUSES = ["completed", "ended_insufficient_balance", "timed_out", "cancelled", "rejected", "missed"]
+
+
 class StartCallRequest(BaseModel):
     host_id: str
+    call_type: Literal["outgoing", "incoming"] = "outgoing"
 
 class EndCallRequest(BaseModel):
     call_id: str
@@ -23,17 +50,223 @@ class EndCallRequest(BaseModel):
 class BalanceCheckRequest(BaseModel):
     call_id: str
 
+class IncomingResponseRequest(BaseModel):
+    host_id: str
+    action: Literal["rejected", "missed"]
+
+
+# ======================= BILLING HELPERS =======================
+
+def _r2(x: float) -> float:
+    return round(float(x) + 1e-9, 2)
+
+
+async def _debit(user_id: ObjectId, amount: float, db) -> Optional[dict]:
+    """Atomic conditional debit. Returns updated user or None if insufficient."""
+    return await db.users.find_one_and_update(
+        {"_id": user_id, "wallet_balance": {"$gte": amount}},
+        {"$inc": {"wallet_balance": -amount}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def _drain(user_id: ObjectId, db) -> float:
+    """Take whatever small balance is left (less than what's due). Race-safe CAS."""
+    for _ in range(5):
+        user = await db.users.find_one({"_id": user_id}, {"wallet_balance": 1})
+        bal = (user or {}).get("wallet_balance", 0) or 0
+        if bal <= 0:
+            return 0.0
+        done = await db.users.find_one_and_update(
+            {"_id": user_id, "wallet_balance": bal}, {"$set": {"wallet_balance": 0}}
+        )
+        if done:
+            return float(bal)
+    return 0.0
+
+
+async def _record_call_txn(call: dict, amount: float, balance_after: float, db):
+    """One wallet transaction per call (amount accumulates) — not one per tick."""
+    if amount <= 0:
+        return
+    now = datetime.utcnow()
+    label = "Incoming" if call.get("call_type") == "incoming" else "Video"
+    await db.transactions.update_one(
+        {"call_id": call["call_id"], "type": "debit"},
+        {
+            "$inc": {"amount": amount},
+            "$set": {
+                "balance_after": balance_after,
+                "description": f"{label} Call - {call['host_name']} (🪙{call['price_per_minute']}/min)",
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "user_id": call["caller_id"],
+                "status": "success",
+                "balance_before": _r2(balance_after + amount),
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+
+
+async def _bill_until(call: dict, until: datetime, db) -> dict:
+    """Charge everything due between call start and `until`.
+
+    Returns {charged, balance, exhausted, billed_seconds}.
+    """
+    user_id = ObjectId(call["caller_id"])
+    ppm = float(call["price_per_minute"])
+    rate = ppm / 60.0
+    start = call["start_time"]
+    elapsed = max(0.0, (until - start).total_seconds())
+    already = float(call.get("total_cost", 0) or 0)
+    due = _r2(elapsed * rate - already)
+
+    charged = 0.0
+    exhausted = False
+    balance = None
+    billed_seconds = float(call.get("billed_seconds", 0) or 0)
+
+    if due >= 0.01:
+        user = await _debit(user_id, due, db)
+        if user:
+            charged = due
+            balance = float(user.get("wallet_balance", 0))
+            billed_seconds = elapsed
+        else:
+            # Pura due afford nahi hai → jo bacha hai wo lo, call khatam
+            charged = _r2(await _drain(user_id, db))
+            balance = 0.0
+            billed_seconds = billed_seconds + (charged / rate if rate else 0)
+            exhausted = True
+
+    if balance is None:
+        user = await db.users.find_one({"_id": user_id}, {"wallet_balance": 1})
+        balance = float((user or {}).get("wallet_balance", 0) or 0)
+
+    # Agle 1 second ka paisa bhi nahi bacha → balance exhausted
+    if balance < max(0.01, rate):
+        exhausted = True
+
+    if charged > 0:
+        await db.call_logs.update_one(
+            {"call_id": call["call_id"]},
+            {"$inc": {"total_cost": charged}, "$set": {"billed_seconds": billed_seconds}},
+        )
+        call["total_cost"] = _r2(already + charged)
+        call["billed_seconds"] = billed_seconds
+        await _record_call_txn(call, charged, balance, db)
+
+    return {"charged": charged, "balance": _r2(balance), "exhausted": exhausted, "billed_seconds": billed_seconds}
+
+
+async def _finalize(call: dict, status: str, end_time: datetime, db,
+                    rating: Optional[int] = None, review: Optional[str] = None) -> dict:
+    """Mark call ended (idempotent via status guard) + update user/host stats."""
+    answered = bool(call.get("start_time"))
+    if answered:
+        talk_secs = int(max(0, (end_time - call["start_time"]).total_seconds()))
+        # Balance khatam hone pe jitna pay kiya utna hi duration
+        if status == "ended_insufficient_balance":
+            talk_secs = int(min(talk_secs, call.get("billed_seconds", talk_secs) or talk_secs))
+    else:
+        talk_secs = 0
+
+    update = {"status": status, "end_time": end_time, "duration_seconds": talk_secs}
+    if rating:
+        update["rating"] = max(1, min(5, int(rating)))
+    if review:
+        update["review"] = review[:500]
+
+    res = await db.call_logs.update_one(
+        {"call_id": call["call_id"], "status": {"$in": IN_PROGRESS}}, {"$set": update}
+    )
+    if res.modified_count == 0:
+        return {"already_ended": True, "duration_seconds": call.get("duration_seconds", 0), "xp_gained": 0}
+
+    xp_gained = 0
+    level_info = None
+    if answered:
+        xp_gained = add_xp_for_action("call_made")
+        user = await db.users.find_one_and_update(
+            {"_id": ObjectId(call["caller_id"])},
+            {"$inc": {"xp": xp_gained, "call_count": 1, "total_call_minutes": talk_secs // 60}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if user:
+            level_info = calculate_level(user.get("xp", 0))
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"level": level_info["level"], "level_title": level_info["title"]}},
+            )
+        try:
+            await db.host_users.update_one(
+                {"_id": ObjectId(call["host_id"])},
+                {"$inc": {"total_calls": 1, "total_minutes": talk_secs // 60,
+                          "total_earnings": float(call.get("total_cost", 0) or 0)}},
+            )
+        except Exception:
+            pass
+
+    if rating and answered:
+        await _apply_rating(call["host_id"], rating, db)
+
+    return {"already_ended": False, "duration_seconds": talk_secs, "xp_gained": xp_gained, "level_info": level_info}
+
+
+async def _apply_rating(host_id: str, rating: int, db):
+    try:
+        host = await db.host_users.find_one({"_id": ObjectId(host_id)})
+    except Exception:
+        return
+    if not host:
+        return
+    rating = max(1, min(5, int(rating)))
+    old_rating = host.get("rating", 4.5)
+    count = host.get("review_count", 0)
+    new_rating = ((old_rating * count) + rating) / (count + 1)
+    await db.host_users.update_one(
+        {"_id": host["_id"]},
+        {"$set": {"rating": round(new_rating, 1)}, "$inc": {"review_count": 1}},
+    )
+
+
+def _billable_until(call: dict, now: datetime, grace: int) -> (datetime, bool):
+    """Billing heartbeat safety: returns (bill_until, timed_out)."""
+    last = call.get("last_billing_check") or call.get("start_time") or now
+    limit = last + timedelta(seconds=grace)
+    if now > limit:
+        return limit, True
+    return now, False
+
+
+async def _close_stale_calls(user_id: str, db, grace: int):
+    """User ek time pe ek hi call me ho sakta hai — purani open calls settle karke band karo."""
+    now = datetime.utcnow()
+    stale = await db.call_logs.find({"caller_id": user_id, "status": {"$in": IN_PROGRESS}}).to_list(20)
+    for call in stale:
+        if call.get("start_time"):
+            until, _ = _billable_until(call, now, grace)
+            await _bill_until(call, until, db)
+            await _finalize(call, "completed", until, db)
+        else:
+            await _finalize(call, "cancelled", now, db)
+
+
+# ======================= USER ENDPOINTS =======================
+
 @router.post("/initiate")
 async def initiate_call(
     request: StartCallRequest,
     current_user=Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Initiate a video call with a host"""
+    """Start a call (outgoing from host profile, or an accepted incoming call)."""
     if current_user.get("is_guest"):
         raise HTTPException(status_code=403, detail="Guests cannot make calls. Please register.")
 
-    # Check host exists
     try:
         host = await db.host_users.find_one({"_id": ObjectId(request.host_id), "is_active": True})
     except Exception:
@@ -41,38 +274,45 @@ async def initiate_call(
     if not host:
         raise HTTPException(status_code=404, detail="Host not found or inactive")
 
-    if not host.get("is_online", False):
+    if request.call_type == "outgoing" and not host.get("is_online", False):
         raise HTTPException(status_code=400, detail="Host is currently offline")
 
-    # Check wallet - must have at least 1 minute worth
-    min_required = host["price_per_minute"]
-    user_balance = current_user.get("wallet_balance", 0)
-    if user_balance < min_required:
+    cfg = await get_app_settings(db)
+    await _close_stale_calls(str(current_user["_id"]), db, cfg["heartbeat_grace_seconds"])
+
+    fresh = await db.users.find_one({"_id": current_user["_id"]}, {"wallet_balance": 1})
+    user_balance = float((fresh or {}).get("wallet_balance", 0) or 0)
+    price = float(host["price_per_minute"])
+
+    # Kam se kam 1 minute ka balance chahiye
+    if user_balance < price:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient balance. You need at least {min_required} coins for a 1-minute call. Your balance: {user_balance} coins"
+            detail=f"Insufficient balance. You need at least {price:g} coins for a 1-minute call. "
+                   f"Your balance: {user_balance:g} coins. Please recharge your wallet."
         )
 
-    # Create call session
+    now = datetime.utcnow()
     call_doc = {
         "call_id": str(uuid.uuid4()),
+        "call_type": request.call_type,
         "caller_id": str(current_user["_id"]),
-        "caller_name": current_user["name"],
+        "caller_name": current_user.get("name"),
         "host_id": str(host["_id"]),
         "host_name": host["name"],
-        "price_per_minute": host["price_per_minute"],
-        "status": "initiated",  # initiated -> ringing -> active -> ended
+        "price_per_minute": price,
+        "status": "initiated",  # initiated -> active -> completed / ended_insufficient_balance / timed_out / cancelled
         "start_time": None,
         "end_time": None,
         "duration_seconds": 0,
+        "billed_seconds": 0,
         "total_cost": 0.0,
         "balance_at_start": user_balance,
-        "last_billing_check": datetime.utcnow(),
+        "last_billing_check": now,
         "rating": None,
         "review": None,
-        "created_at": datetime.utcnow()
+        "created_at": now
     }
-
     result = await db.call_logs.insert_one(call_doc)
     call_doc["_id"] = result.inserted_id
 
@@ -81,29 +321,49 @@ async def initiate_call(
         "message": "Call initiated. Connecting...",
         "call": serialize_doc(call_doc),
         "call_id": call_doc["call_id"],
+        "call_type": request.call_type,
         "your_balance": user_balance,
-        "price_per_minute": host["price_per_minute"],
-        "estimated_max_minutes": int(user_balance / host["price_per_minute"])
+        "price_per_minute": price,
+        "estimated_max_minutes": int(user_balance / price),
+        "estimated_max_seconds": int(user_balance / (price / 60.0)),
+        "call_video": effective_call_video(host),
+        "connecting_seconds": cfg["connecting_seconds"],
+        "billing_tick_seconds": cfg["billing_tick_seconds"],
     }
 
+
 @router.post("/answer/{call_id}")
-async def answer_call(call_id: str, db=Depends(get_db)):
-    """Mark call as answered/active"""
+async def answer_call(call_id: str, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Connecting screen khatam → host video starts → billing clock starts NOW."""
     call = await db.call_logs.find_one({"call_id": call_id})
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+    # FIX: pehle bina auth koi bhi kisi ki call answer kar sakta tha
+    if call["caller_id"] != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
-    # FIX: sirf initiated/ringing call hi answer ho sakti hai —
-    # ended call dobara "active" nahi honi chahiye
     if call["status"] not in ["initiated", "ringing"]:
         return {"success": False, "message": f"Call cannot be answered (status: {call['status']})"}
 
     now = datetime.utcnow()
-    await db.call_logs.update_one(
-        {"call_id": call_id},
+    res = await db.call_logs.update_one(
+        {"call_id": call_id, "status": {"$in": ["initiated", "ringing"]}},
         {"$set": {"status": "active", "start_time": now, "last_billing_check": now}}
     )
-    return {"success": True, "message": "Call connected", "start_time": now.isoformat()}
+    if res.modified_count == 0:
+        return {"success": False, "message": "Call cannot be answered"}
+
+    fresh = await db.users.find_one({"_id": current_user["_id"]}, {"wallet_balance": 1})
+    balance = float((fresh or {}).get("wallet_balance", 0) or 0)
+    rate = call["price_per_minute"] / 60.0
+    return {
+        "success": True,
+        "message": "Call connected",
+        "start_time": now.isoformat(),
+        "balance": balance,
+        "seconds_remaining": int(balance / rate) if rate else None,
+    }
+
 
 @router.post("/billing-check")
 async def billing_check(
@@ -112,100 +372,70 @@ async def billing_check(
     db=Depends(get_db)
 ):
     """
-    Called every 60 seconds during call to deduct coins and check balance.
-    App should call this every minute during active call.
+    Call every few seconds (`billing_tick_seconds`) during an active call.
+    Deducts coins pro-rata for elapsed time; returns `continue` or `end_call`.
     """
-    call = await db.call_logs.find_one({"call_id": request.call_id, "status": "active"})
+    call = await db.call_logs.find_one({"call_id": request.call_id})
     if not call:
-        return {"success": False, "action": "end_call", "reason": "Call not found or already ended"}
-
+        return {"success": False, "action": "end_call", "reason": "call_not_found"}
     if str(current_user["_id"]) != call["caller_id"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
-
+    if call["status"] != "active":
+        reason = "insufficient_balance" if call["status"] == "ended_insufficient_balance" else "call_ended"
+        return {"success": False, "action": "end_call", "reason": reason, "status": call["status"],
+                "total_cost": call.get("total_cost", 0)}
     if not call.get("start_time"):
         return {"success": False, "action": "end_call", "reason": "call_not_started"}
 
+    cfg = await get_app_settings(db)
     now = datetime.utcnow()
-    price_per_minute = call["price_per_minute"]
+    until, timed_out = _billable_until(call, now, cfg["heartbeat_grace_seconds"])
 
-    # FIX: billing ab server-side time based hai.
-    # Pehle har /billing-check call pe bina time check ke 1 min kaat diya jaata tha
-    # (spam karne pe double-charge), aur billing-check na karne pe free baat hoti thi.
-    billed_minutes = call.get("duration_seconds", 0) // 60
-    elapsed_minutes = int(max(0, (now - call["start_time"]).total_seconds()) // 60)
-    minutes_due = elapsed_minutes - billed_minutes
+    bill = await _bill_until(call, until, db)
+    ppm = float(call["price_per_minute"])
+    rate = ppm / 60.0
+    balance = bill["balance"]
+    seconds_remaining = int(balance / rate) if rate else 0
 
-    if minutes_due <= 0:
-        # Abhi naya full minute nahi hua — kuch charge nahi hoga, bas status batao
-        fresh = await db.users.find_one({"_id": current_user["_id"]})
-        balance = fresh.get("wallet_balance", 0) if fresh else 0
-        return {
-            "success": True,
-            "action": "continue",
-            "deducted": 0,
-            "minutes_billed": billed_minutes,
-            "new_balance": balance,
-            "reason": None,
-            "warning": None if balance > price_per_minute * 2 else f"Low balance! Only {int(balance / price_per_minute)} minute(s) remaining"
-        }
-
-    # Saare elapsed unbilled minutes charge karo — reconnect ke baad bhi
-    # koi free minute nahi milega
-    charged_minutes = 0
-    new_balance = None
-    last_fail_balance = 0
-    for _ in range(minutes_due):
-        result = await deduct_wallet(
-            current_user["_id"],
-            price_per_minute,
-            f"Video Call - {call['host_name']} (1 min)",
-            db
-        )
-        if not result["success"]:
-            last_fail_balance = result.get("balance", 0)
-            break
-        charged_minutes += 1
-        new_balance = result["new_balance"]
-
-    if charged_minutes > 0:
-        await db.call_logs.update_one(
-            {"call_id": request.call_id},
-            {
-                "$inc": {
-                    "duration_seconds": charged_minutes * 60,
-                    "total_cost": charged_minutes * price_per_minute
-                },
-                "$set": {"last_billing_check": now}
-            }
-        )
-
-    total_billed = billed_minutes + charged_minutes
-
-    if charged_minutes == 0:
-        # Ek bhi minute afford nahi hua — call end
-        await db.call_logs.update_one(
-            {"call_id": request.call_id},
-            {"$set": {"status": "ended_insufficient_balance", "end_time": now}}
-        )
+    if bill["exhausted"] or timed_out:
+        status = "ended_insufficient_balance" if bill["exhausted"] else "timed_out"
+        fin = await _finalize(call, status, until, db)
         return {
             "success": False,
             "action": "end_call",
-            "reason": "insufficient_balance",
-            "balance": last_fail_balance,
-            "minutes_billed": total_billed
+            "reason": "insufficient_balance" if bill["exhausted"] else "connection_lost",
+            "message": ("Aapka wallet balance khatam ho gaya hai. Call continue karne ke liye recharge karein."
+                        if bill["exhausted"] else "Connection lost — call ended."),
+            "deducted": bill["charged"],
+            "new_balance": balance,
+            "balance": balance,
+            "total_cost": _r2(call.get("total_cost", 0)),
+            "duration_seconds": fin.get("duration_seconds", 0),
+            "seconds_remaining": 0,
+            "recharge_required": bool(bill["exhausted"]),
         }
 
-    can_continue = new_balance >= price_per_minute
+    await db.call_logs.update_one({"call_id": call["call_id"]}, {"$set": {"last_billing_check": now}})
+
+    warning = None
+    if seconds_remaining <= 60:
+        warning = f"Low balance! Sirf {seconds_remaining} second ki call baaki hai — recharge karein"
+    elif seconds_remaining <= 120:
+        warning = f"Low balance! Only {seconds_remaining // 60} minute(s) remaining"
 
     return {
         "success": True,
-        "action": "continue" if can_continue else "end_call",
-        "deducted": charged_minutes * price_per_minute,
-        "minutes_billed": total_billed,
-        "new_balance": new_balance,
-        "reason": None if can_continue else "balance_will_run_out_next_minute",
-        "warning": None if new_balance > price_per_minute * 2 else f"Low balance! Only {int(new_balance / price_per_minute)} minute(s) remaining"
+        "action": "continue",
+        "deducted": bill["charged"],
+        "total_cost": _r2(call.get("total_cost", 0)),
+        "new_balance": balance,
+        "seconds_remaining": seconds_remaining,
+        "elapsed_seconds": int((now - call["start_time"]).total_seconds()),
+        "minutes_billed": int(bill["billed_seconds"] // 60),
+        "reason": None,
+        "warning": warning,
     }
+
 
 @router.post("/end")
 async def end_call(
@@ -213,135 +443,118 @@ async def end_call(
     current_user=Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """End a video call"""
+    """User hung up (or cancelled while connecting). Final settlement + optional rating."""
     call = await db.call_logs.find_one({"call_id": request.call_id})
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
-
     if str(current_user["_id"]) != call["caller_id"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    if call["status"] not in ["active", "initiated", "ringing"]:
-        return {"success": False, "message": "Call already ended"}
-
-    end_time = datetime.utcnow()
-    price_per_minute = call["price_per_minute"]
-
-    # FIX: Final settlement — call end hone se pehle jo full minutes elapsed hain
-    # par bill nahi hue, unhe charge karo. Pehle billing-check skip karke
-    # directly /end call karne pe wo minutes free ho jaate the.
-    if call.get("start_time"):
-        billed_minutes = call.get("duration_seconds", 0) // 60
-        elapsed_minutes = int(max(0, (end_time - call["start_time"]).total_seconds()) // 60)
-        minutes_due = elapsed_minutes - billed_minutes
-
-        settled_minutes = 0
-        for _ in range(max(0, minutes_due)):
-            result = await deduct_wallet(
-                current_user["_id"],
-                price_per_minute,
-                f"Video Call - {call['host_name']} (final settlement)",
-                db
-            )
-            if not result["success"]:
-                break
-            settled_minutes += 1
-
-        if settled_minutes:
-            await db.call_logs.update_one(
-                {"call_id": request.call_id},
-                {"$inc": {
-                    "duration_seconds": settled_minutes * 60,
-                    "total_cost": settled_minutes * price_per_minute
-                }}
-            )
-            # local copy bhi update karo taaki neeche stats sahi rahein
-            call["duration_seconds"] = call.get("duration_seconds", 0) + settled_minutes * 60
-            call["total_cost"] = call.get("total_cost", 0) + settled_minutes * price_per_minute
-
-    duration_secs = call.get("duration_seconds", 0)
-    if call.get("start_time"):
-        actual_secs = int((end_time - call["start_time"]).total_seconds())
-        duration_secs = max(duration_secs, actual_secs)
-
-    update_data = {
-        "status": "completed",
-        "end_time": end_time,
-        "duration_seconds": duration_secs,
-    }
-    if request.rating:
-        update_data["rating"] = max(1, min(5, request.rating))
-    if request.review:
-        update_data["review"] = request.review
-
-    await db.call_logs.update_one({"call_id": request.call_id}, {"$set": update_data})
-
-    # Update XP for caller
-    xp_gained = add_xp_for_action("call_made")
-    new_xp = current_user.get("xp", 0) + xp_gained
-    level_info = calculate_level(new_xp)
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {
-            "$set": {
-                "xp": new_xp,
-                "level": level_info["level"],
-                "level_title": level_info["title"]
-            },
-            "$inc": {"call_count": 1, "total_call_minutes": duration_secs // 60}
+    # Server already ended it (e.g. balance exhausted) — sirf rating save karo
+    if call["status"] not in IN_PROGRESS:
+        if request.rating and call.get("start_time") and not call.get("rating"):
+            r = max(1, min(5, request.rating))
+            await db.call_logs.update_one({"call_id": call["call_id"]},
+                                          {"$set": {"rating": r, "review": (request.review or None)}})
+            await _apply_rating(call["host_id"], r, db)
+        fresh = await db.users.find_one({"_id": current_user["_id"]}, {"wallet_balance": 1})
+        return {
+            "success": True,
+            "message": "Call already ended",
+            "status": call["status"],
+            "duration_seconds": call.get("duration_seconds", 0),
+            "duration_minutes": round(call.get("duration_seconds", 0) / 60, 1),
+            "total_cost": _r2(call.get("total_cost", 0)),
+            "new_balance": float((fresh or {}).get("wallet_balance", 0) or 0),
+            "xp_gained": 0,
+            "auto_ended": call["status"] == "ended_insufficient_balance",
         }
-    )
 
-    # Update host stats
-    total_cost = call.get("total_cost", 0)
-    await db.host_users.update_one(
-        {"_id": ObjectId(call["host_id"])},
-        {"$inc": {"total_calls": 1, "total_minutes": duration_secs // 60, "total_earnings": total_cost}}
-    )
+    cfg = await get_app_settings(db)
+    now = datetime.utcnow()
 
-    # Update host rating if provided
-    if request.rating:
-        host = await db.host_users.find_one({"_id": ObjectId(call["host_id"])})
-        if host:
-            old_rating = host.get("rating", 4.5)
-            count = host.get("review_count", 0)
-            new_rating = ((old_rating * count) + request.rating) / (count + 1)
-            await db.host_users.update_one(
-                {"_id": ObjectId(call["host_id"])},
-                {"$set": {"rating": round(new_rating, 1)}, "$inc": {"review_count": 1}}
-            )
+    if not call.get("start_time"):
+        # Connecting screen pe hi cancel — koi charge nahi
+        await _finalize(call, "cancelled", now, db)
+        return {"success": True, "message": "Call cancelled", "status": "cancelled",
+                "duration_seconds": 0, "duration_minutes": 0, "total_cost": 0, "xp_gained": 0}
 
+    until, _ = _billable_until(call, now, cfg["heartbeat_grace_seconds"])
+    bill = await _bill_until(call, until, db)
+    status = "ended_insufficient_balance" if bill["exhausted"] and bill["balance"] <= 0 else "completed"
+    fin = await _finalize(call, status, until, db, rating=request.rating, review=request.review)
+
+    secs = fin.get("duration_seconds", 0)
     return {
         "success": True,
         "message": "Call ended",
-        "duration_seconds": duration_secs,
-        "duration_minutes": round(duration_secs / 60, 1),
-        "total_cost": total_cost,
-        "xp_gained": xp_gained,
-        "level_info": level_info
+        "status": status,
+        "duration_seconds": secs,
+        "duration_minutes": round(secs / 60, 1),
+        "total_cost": _r2(call.get("total_cost", 0)),
+        "new_balance": bill["balance"],
+        "xp_gained": fin.get("xp_gained", 0),
+        "level_info": fin.get("level_info"),
     }
+
 
 @router.get("/random-host")
 async def get_random_incoming_call(
     current_user=Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Simulate random incoming call from admin-added hosts"""
+    """Incoming call: pick a random online host (prefers hosts with an uploaded call video)."""
     if current_user.get("is_guest"):
         raise HTTPException(status_code=403, detail="Guests cannot receive calls")
 
-    online_hosts = await db.host_users.find({"is_active": True, "is_online": True}).to_list(100)
+    cfg = await get_app_settings(db)
+    online_hosts = await db.host_users.find({"is_active": True, "is_online": True}).to_list(200)
     if not online_hosts:
         return {"success": False, "message": "No hosts available right now"}
 
-    host = random.choice(online_hosts)
+    with_video = [h for h in online_hosts if effective_call_video(h)]
+    host = random.choice(with_video or online_hosts)
     return {
         "success": True,
         "incoming_call": True,
-        "host": serialize_doc(host),
+        "host": public_host(host),
         "message": f"{host['name']} is calling you!",
-        "price_per_minute": host["price_per_minute"]
+        "price_per_minute": host["price_per_minute"],
+        "ring_timeout_seconds": cfg["incoming_ring_timeout_seconds"],
     }
+
+
+@router.post("/incoming/respond")
+async def incoming_call_response(
+    request: IncomingResponseRequest,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Log a rejected / missed incoming call (accepted calls go through /initiate)."""
+    try:
+        host = await db.host_users.find_one({"_id": ObjectId(request.host_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid host ID")
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    now = datetime.utcnow()
+    await db.call_logs.insert_one({
+        "call_id": str(uuid.uuid4()),
+        "call_type": "incoming",
+        "caller_id": str(current_user["_id"]),
+        "caller_name": current_user.get("name"),
+        "host_id": str(host["_id"]),
+        "host_name": host["name"],
+        "price_per_minute": host.get("price_per_minute", 0),
+        "status": request.action,
+        "start_time": None,
+        "end_time": now,
+        "duration_seconds": 0,
+        "total_cost": 0.0,
+        "created_at": now,
+    })
+    return {"success": True, "status": request.action}
+
 
 @router.get("/history")
 async def call_history(
@@ -376,9 +589,9 @@ async def admin_all_calls(
     calls = await db.call_logs.find().sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     total = await db.call_logs.count_documents({})
 
-    # Stats
+    # Stats — har answered call (completed / balance-exhausted / timed-out) count hoti hai
     pipeline = [
-        {"$match": {"status": "completed"}},
+        {"$match": {"status": {"$in": ["completed", "ended_insufficient_balance", "timed_out"]}}},
         {"$group": {
             "_id": None,
             "total_calls": {"$sum": 1},
@@ -395,7 +608,7 @@ async def admin_all_calls(
         "total": total,
         "stats": {
             "total_completed_calls": stats.get("total_calls", 0),
-            "total_revenue": round(stats.get("total_revenue", 0), 2),
-            "avg_duration_seconds": round(stats.get("avg_duration", 0), 0)
+            "total_revenue": round(stats.get("total_revenue", 0) or 0, 2),
+            "avg_duration_seconds": round(stats.get("avg_duration", 0) or 0, 0)
         }
     }

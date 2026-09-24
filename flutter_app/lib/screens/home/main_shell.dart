@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../services/incoming_call_service.dart';
 
 import '../call/random_match_screen.dart';
 import '../chat/chat_screen.dart';
@@ -15,6 +18,21 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+  late final IncomingCallService _incoming;
+
+  @override
+  void initState() {
+    super.initState();
+    // App open + user active → host incoming call har ~3 min (admin setting)
+    _incoming = context.read<IncomingCallService>();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _incoming.start());
+  }
+
+  @override
+  void dispose() {
+    _incoming.stop();
+    super.dispose();
+  }
 
   final _pages = const [
     DiscoverScreen(),

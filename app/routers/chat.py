@@ -1,118 +1,163 @@
-from fastapi import APIRouter, HTTPException, Depends, Body, Query
+from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime
 from bson import ObjectId
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 import random
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_admin
+from app.core.app_settings import get_app_settings
 from app.utils.helpers import serialize_doc, calculate_level, add_xp_for_action
+from app.services.ai_bot import generate_reply, ai_configured, build_system_prompt
+from app.routers.hosts import public_host
 
 router = APIRouter(prefix="/chat", tags=["Chat & Random Match"])
+
+MAX_MESSAGE_LEN = 1000
+
 
 class ChatMessage(BaseModel):
     message: str
     conversation_id: Optional[str] = None
+    # Kis host/persona se baat karni hai. None = Priya page ka default persona.
+    host_id: Optional[str] = None
+
+class NewSessionRequest(BaseModel):
+    host_id: Optional[str] = None
 
 class RandomMatchRequest(BaseModel):
     interest: Optional[str] = None
 
-# Hinglish Bot Responses - contextual
-BOT_PERSONALITY = """Tu ek friendly Hinglish chatbot hai jiska naam 'Priya' hai.
-Tu mix of Hindi and English (Hinglish) mein baat karta hai.
-Tu friendly, fun aur supportive hai. Short replies deta hai usually 1-2 sentences.
-Tu flirty nahi hai lekin warm aur caring hai.
-"""
+class BotTestRequest(BaseModel):
+    message: str
+    host_id: Optional[str] = None
+    history: List[dict] = Field(default_factory=list)
 
-BOT_RESPONSES = {
-    "greeting": [
-        "Heyy! Kya haal hai tumhara? 😊",
-        "Hello! Aaj kaisa din tha? 🌟",
-        "Hi there! Bahut din baad mila! Kya chal raha hai? 😄",
-        "Heyy! Miss kar raha tha tumhe! Kaise ho? 💫"
-    ],
-    "how_are_you": [
-        "Main toh bilkul mast hoon! Aur tum? 😄",
-        "Ekdum fit aur fine! Tumhara kya haal hai? 🌈",
-        "Aaj bahut acha feel ho raha hai! Tum bhi theek ho na? ❤️"
-    ],
-    "bored": [
-        "Arre yaar boredom ko bhagao! Koi naya kaam shuru karo 🎯",
-        "Boring mat feel karo! Random video call try karo app mein 😄",
-        "Acha sunao, koi interesting kaam karte hain! Game khelo ya music suno 🎵"
-    ],
-    "sad": [
-        "Arre kya hua yaar? Sab theek ho jayega, tension mat lo 🤗",
-        "Sad mat raho! Main hoon na tumhare saath 💕",
-        "Thoda time lo, sab kuch settle ho jayega. Main tumhare saath hoon 🌸"
-    ],
-    "happy": [
-        "Wohoo! Bahut acha! Khushi share karo mujhse 🎉",
-        "Yay! Tumhari khushi dekh ke mujhe bhi khushi ho gayi! 😊",
-        "That's amazing! Celebrate karo yaar! 🥳"
-    ],
-    "call": [
-        "Haan video call toh bahut fun hoti hai! Home pe ja ke try karo 📱",
-        "Accha idea hai! App mein bahut saare interesting log hain 😊",
-        "Video call se naye dost banao! Bahut maza aata hai 🎊"
-    ],
-    "gift": [
-        "Ooh gifts! Kya gift dene wale ho? 🎁",
-        "Gifts se rishte mazboot hote hain! Kuch special bhejo 💝",
-        "Gift dena bahut cute gesture hai! 🌹"
-    ],
-    "default": [
-        "Interesting! Aur batao yaar 😊",
-        "Haan haan, samajh gaya main! Phir kya hua? 🤔",
-        "Achha! Sach mein? Mujhe toh pata hi nahi tha! 😮",
-        "Yaar tumse baat karke acha lagta hai! Aur kya chal raha hai? 💫",
-        "Ha ha! Tumhari baatein bahut interesting hoti hain 😄",
-        "Sach keh rahe ho? Wow! 😮",
-        "Hmm theek hai, lekin main thoda alag sochta hoon is baare mein 🤔",
-        "Kya scene hai! Sab theek hai na? 😊"
-    ],
-    "name": [
-        "Mera naam Priya hai! App ka friendly bot 😊 Tumhara naam kya hai?",
-        "Main Priya hoon! App ki virtual dost 🌸 Tum kya bolte ho?",
-    ],
-    "where": [
-        "Main toh app ke andar hoon! Har jagah available hoon tumhare liye 😄",
-        "Virtual world mein rehti hoon main! But feel real hoti hai na? 💫",
-    ],
-    "bye": [
-        "Bye bye! Jaldi wapas aana! Miss karungi 👋❤️",
-        "Chalo tata! Take care of yourself! 🌸",
-        "Alvida! App pe milte rehna! 💫"
-    ]
-}
 
-def get_bot_response(user_message: str) -> str:
-    """Get contextual bot response based on message"""
-    msg_lower = user_message.lower()
-    
-    if any(word in msg_lower for word in ["hi", "hello", "hey", "heyy", "namaste", "namaskar", "hii"]):
-        return random.choice(BOT_RESPONSES["greeting"])
-    elif any(word in msg_lower for word in ["kaise ho", "kaisa hai", "how are you", "theek", "kya haal"]):
-        return random.choice(BOT_RESPONSES["how_are_you"])
-    elif any(word in msg_lower for word in ["bore", "bored", "boring", "kuch nahi", "timepass"]):
-        return random.choice(BOT_RESPONSES["bored"])
-    elif any(word in msg_lower for word in ["sad", "dukhi", "ro", "cry", "upset", "depressed", "bura"]):
-        return random.choice(BOT_RESPONSES["sad"])
-    elif any(word in msg_lower for word in ["happy", "khush", "mast", "acha", "great", "amazing", "best"]):
-        return random.choice(BOT_RESPONSES["happy"])
-    elif any(word in msg_lower for word in ["call", "video", "baat"]):
-        return random.choice(BOT_RESPONSES["call"])
-    elif any(word in msg_lower for word in ["gift", "present", "bhejo", "send"]):
-        return random.choice(BOT_RESPONSES["gift"])
-    elif any(word in msg_lower for word in ["naam", "name", "kaun", "who are you", "tum kaun"]):
-        return random.choice(BOT_RESPONSES["name"])
-    elif any(word in msg_lower for word in ["kahan", "where", "kaha se", "location"]):
-        return random.choice(BOT_RESPONSES["where"])
-    elif any(word in msg_lower for word in ["bye", "alvida", "tata", "chal", "jaata", "jaati"]):
-        return random.choice(BOT_RESPONSES["bye"])
-    else:
-        return random.choice(BOT_RESPONSES["default"])
+# ======================= PERSONA =======================
+
+async def resolve_persona(db, host_id: Optional[str] = None, *, admin: bool = False) -> dict:
+    """Build the bot persona from admin configuration.
+
+    host_id given      → that host's profile + bot context.
+    host_id None       → Priya page default: linked `priya_host_id` host (if any),
+                         merged with the global Priya persona from App Settings.
+    """
+    cfg = await get_app_settings(db)
+    default = cfg["priya_bot"]
+    is_default = not host_id
+    hid = host_id or cfg.get("priya_host_id")
+
+    host = None
+    if hid:
+        try:
+            q = {"_id": ObjectId(hid)}
+            if not admin:
+                q["is_active"] = True
+            host = await db.host_users.find_one(q)
+        except Exception:
+            if not is_default:
+                raise HTTPException(status_code=400, detail="Invalid host ID")
+        if not host and not is_default:
+            raise HTTPException(status_code=404, detail="Host not found")
+
+    if host:
+        if not is_default and not admin and not host.get("bot_enabled", True):
+            raise HTTPException(status_code=403, detail="Chat is not available for this host")
+        name = host.get("name") or default["name"]
+        greeting = host.get("bot_greeting") or (
+            default["greeting"] if is_default and name == default["name"]
+            else f"Heyy! Main {name} hoon 😊 Kaise ho? Hindi, English ya Hinglish — jaise chaho baat karo!"
+        )
+        personality = host.get("bot_personality") or (default["personality"] if is_default else "")
+        instructions = host.get("bot_instructions") or default["instructions"]
+        return {
+            "host_id": str(host["_id"]),
+            "is_default": is_default,
+            "name": name,
+            "avatar": host.get("profile_picture"),
+            "greeting": greeting,
+            "personality": personality,
+            "instructions": instructions,
+            "age": host.get("age"),
+            "gender": host.get("gender"),
+            "city": host.get("city"),
+            "language": host.get("language"),
+            "interests": host.get("interests") or [],
+            "bio": host.get("bio"),
+            "description": host.get("description"),
+            "price_per_minute": host.get("price_per_minute"),
+            "host": host,
+        }
+
+    return {
+        "host_id": None,
+        "is_default": True,
+        "name": default["name"],
+        "avatar": None,
+        "greeting": default["greeting"],
+        "personality": default["personality"],
+        "instructions": default["instructions"],
+        "gender": "female",
+        "interests": [],
+        "host": None,
+    }
+
+
+def persona_public(p: dict) -> dict:
+    return {
+        "name": p["name"],
+        "host_id": p.get("host_id"),
+        "is_default": p.get("is_default", False),
+        "avatar": p.get("avatar"),
+        "greeting": p["greeting"],
+        "host": public_host(p["host"]) if p.get("host") else None,
+        "ai_powered": ai_configured(),
+    }
+
+
+async def _get_owned_conversation(db, conv_id: str, user_id: str) -> dict:
+    try:
+        conv = await db.conversations.find_one({"_id": ObjectId(conv_id), "user_id": user_id, "type": "bot"})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
+
+
+async def _create_conversation(db, user_id: str, persona: dict, conv_host_id: Optional[str]) -> dict:
+    conv_doc = {
+        "user_id": user_id,
+        "type": "bot",
+        "host_id": conv_host_id,          # None = Priya default persona
+        "bot_name": persona["name"],
+        "messages": [{
+            "sender": "bot",
+            "message": persona["greeting"],
+            "timestamp": datetime.utcnow().isoformat(),
+        }],
+        "created_at": datetime.utcnow(),
+    }
+    result = await db.conversations.insert_one(conv_doc)
+    conv_doc["_id"] = result.inserted_id
+    return conv_doc
+
+
+# ======================= BOT ENDPOINTS =======================
+
+@router.get("/bot/persona")
+async def get_bot_persona(
+    host_id: Optional[str] = Query(None),
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Priya page header info: persona name, avatar, greeting + linked host (for video call)."""
+    persona = await resolve_persona(db, host_id)
+    return {"success": True, "persona": persona_public(persona)}
+
 
 @router.post("/bot/message")
 async def chat_with_bot(
@@ -121,75 +166,66 @@ async def chat_with_bot(
     db=Depends(get_db)
 ):
     """
-    Chat with Hinglish AI bot 'Priya'.
-    Bot responds in Hinglish (Hindi + English mix).
+    Chat with the Priya-page AI bot. Understands & replies in Hindi, English or
+    Hinglish, using the persona/instructions configured by admin.
     """
-    if not request.message.strip():
+    text = (request.message or "").strip()
+    if not text:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(text) > MAX_MESSAGE_LEN:
+        raise HTTPException(status_code=400, detail=f"Message too long (max {MAX_MESSAGE_LEN} characters)")
 
-    # Get or create conversation
-    conv_id = request.conversation_id
-    if conv_id:
-        # FIX: pehle koi bhi conversation_id pass hoti thi — invalid ID pe 500 crash,
-        # aur kisi doosre user ki conversation me bhi message push ho jaata tha!
-        try:
-            existing_conv = await db.conversations.find_one({
-                "_id": ObjectId(conv_id),
-                "user_id": str(current_user["_id"]),
-                "type": "bot"
-            })
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid conversation ID")
-        if not existing_conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+    user_id = str(current_user["_id"])
+    if request.conversation_id:
+        conv = await _get_owned_conversation(db, request.conversation_id, user_id)
+        conv_host_id = conv.get("host_id")
+        persona = await resolve_persona(db, conv_host_id)
     else:
-        conv_doc = {
-            "user_id": str(current_user["_id"]),
-            "type": "bot",
-            "bot_name": "Priya",
-            "messages": [],
-            "created_at": datetime.utcnow()
-        }
-        result = await db.conversations.insert_one(conv_doc)
-        conv_id = str(result.inserted_id)
+        conv_host_id = request.host_id or None
+        persona = await resolve_persona(db, conv_host_id)
+        conv = await _create_conversation(db, user_id, persona, conv_host_id)
+    conv_id = str(conv["_id"])
 
-    # Generate bot response
-    bot_reply = get_bot_response(request.message)
+    result = await generate_reply(persona, conv.get("messages") or [], text)
+    bot_reply = result["reply"]
 
-    # Save messages
-    user_msg = {
-        "sender": "user",
-        "message": request.message,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    bot_msg = {
-        "sender": "bot",
-        "message": bot_reply,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
+    now = datetime.utcnow().isoformat()
     await db.conversations.update_one(
-        {"_id": ObjectId(conv_id)},
-        {"$push": {"messages": {"$each": [user_msg, bot_msg]}}}
+        {"_id": conv["_id"]},
+        {
+            "$push": {"messages": {"$each": [
+                {"sender": "user", "message": text, "timestamp": now},
+                {"sender": "bot", "message": bot_reply, "timestamp": now,
+                 "ai_powered": result["ai_powered"], "language": result["language"]},
+            ]}},
+            "$set": {"updated_at": datetime.utcnow(), "bot_name": persona["name"]},
+        }
     )
 
-    # XP for chat
+    # XP for chat (atomic $inc — pehle stale value overwrite hoti thi)
     xp_gained = add_xp_for_action("chat_message")
-    new_xp = current_user.get("xp", 0) + xp_gained
-    level_info = calculate_level(new_xp)
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"xp": new_xp, "level": level_info["level"], "level_title": level_info["title"]}}
+    user = await db.users.find_one_and_update(
+        {"_id": current_user["_id"]}, {"$inc": {"xp": xp_gained}}, return_document=ReturnDocument.AFTER
     )
+    if user:
+        level_info = calculate_level(user.get("xp", 0))
+        await db.users.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"level": level_info["level"], "level_title": level_info["title"]}}
+        )
 
     return {
         "success": True,
         "conversation_id": conv_id,
         "bot_reply": bot_reply,
-        "bot_name": "Priya",
-        "your_message": request.message,
+        "bot_name": persona["name"],
+        "host_id": persona.get("host_id"),
+        "your_message": text,
+        "language": result["language"],
+        "ai_powered": result["ai_powered"],
         "xp_gained": xp_gained
     }
+
 
 @router.get("/bot/history/{conversation_id}")
 async def get_bot_chat_history(
@@ -198,16 +234,9 @@ async def get_bot_chat_history(
     db=Depends(get_db)
 ):
     """Get chat history with bot"""
-    try:
-        conv = await db.conversations.find_one({
-            "_id": ObjectId(conversation_id),
-            "user_id": str(current_user["_id"])
-        })
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid conversation ID")
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv = await _get_owned_conversation(db, conversation_id, str(current_user["_id"]))
     return {"success": True, "conversation": serialize_doc(conv)}
+
 
 @router.get("/bot/my-conversations")
 async def my_bot_conversations(
@@ -220,29 +249,45 @@ async def my_bot_conversations(
     ).sort("created_at", -1).limit(20).to_list(20)
     return {"success": True, "conversations": [serialize_doc(c) for c in convs]}
 
+
 @router.post("/bot/new-session")
 async def start_new_bot_session(
+    request: Optional[NewSessionRequest] = None,
     current_user=Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Start a fresh bot conversation"""
-    conv_doc = {
-        "user_id": str(current_user["_id"]),
-        "type": "bot",
-        "bot_name": "Priya",
-        "messages": [{
-            "sender": "bot",
-            "message": "Heyy! Main Priya hoon! Kaise ho aaj? 😊 Kuch baat karte hain!",
-            "timestamp": datetime.utcnow().isoformat()
-        }],
-        "created_at": datetime.utcnow()
-    }
-    result = await db.conversations.insert_one(conv_doc)
+    """Start a fresh bot conversation (optionally with a specific host persona)"""
+    host_id = (request.host_id if request else None) or None
+    persona = await resolve_persona(db, host_id)
+    conv = await _create_conversation(db, str(current_user["_id"]), persona, host_id)
     return {
         "success": True,
-        "conversation_id": str(result.inserted_id),
-        "greeting": "Heyy! Main Priya hoon! Kaise ho aaj? 😊 Kuch baat karte hain!",
-        "bot_name": "Priya"
+        "conversation_id": str(conv["_id"]),
+        "greeting": persona["greeting"],
+        "bot_name": persona["name"],
+        "persona": persona_public(persona),
+    }
+
+
+@router.post("/admin/bot-test")
+async def admin_bot_test(
+    request: BotTestRequest,
+    db=Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """Admin: preview how the bot replies with the current configuration (nothing is saved)."""
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    persona = await resolve_persona(db, request.host_id or None, admin=True)
+    history = [m for m in request.history if isinstance(m, dict)][-20:]
+    result = await generate_reply(persona, history, request.message.strip())
+    return {
+        "success": True,
+        "reply": result["reply"],
+        "ai_powered": result["ai_powered"],
+        "language": result["language"],
+        "persona_name": persona["name"],
+        "system_prompt": build_system_prompt(persona),
     }
 
 # ========== RANDOM MATCH ==========
@@ -279,7 +324,7 @@ async def random_match(
     return {
         "success": True,
         "message": f"Match mila! {matched['name']} ke saath connect ho 🎉",
-        "matched_host": serialize_doc(matched),
+        "matched_host": public_host(matched),
         "price_per_minute": matched["price_per_minute"],
         "action": "initiate_call"
     }

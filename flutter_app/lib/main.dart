@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'providers/app_settings_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/call_provider.dart';
 import 'providers/chat_provider.dart';
@@ -11,6 +12,7 @@ import 'providers/wallet_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_service.dart';
+import 'services/incoming_call_service.dart';
 import 'theme/app_theme.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -32,7 +34,15 @@ class _VideoCallAppState extends State<VideoCallApp> {
   late final AuthProvider authP = AuthProvider(api);
   late final HostProvider hostP = HostProvider(api);
   late final WalletProvider walletP = WalletProvider(api, authP);
-  late final CallProvider callP = CallProvider(api, authP);
+  late final AppSettingsProvider settingsP = AppSettingsProvider(api);
+  late final CallProvider callP = CallProvider(api, authP, settingsP);
+  late final IncomingCallService incomingS = IncomingCallService(
+    api: api,
+    auth: authP,
+    callP: callP,
+    settingsP: settingsP,
+    navigatorKey: navigatorKey,
+  );
   late final GiftProvider giftP = GiftProvider(api, authP);
   late final ChatProvider chatP = ChatProvider(api, authP);
   late final LevelProvider levelP = LevelProvider(api);
@@ -63,7 +73,9 @@ class _VideoCallAppState extends State<VideoCallApp> {
         ChangeNotifierProvider.value(value: authP),
         ChangeNotifierProvider.value(value: hostP),
         ChangeNotifierProvider.value(value: walletP),
+        ChangeNotifierProvider.value(value: settingsP),
         ChangeNotifierProvider.value(value: callP),
+        ChangeNotifierProvider.value(value: incomingS),
         ChangeNotifierProvider.value(value: giftP),
         ChangeNotifierProvider.value(value: chatP),
         ChangeNotifierProvider.value(value: levelP),

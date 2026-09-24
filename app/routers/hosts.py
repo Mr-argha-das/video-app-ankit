@@ -2,18 +2,60 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Q
 from datetime import datetime
 from bson import ObjectId
 from typing import Optional, List
-import os, aiofiles, uuid
 
 from app.core.database import get_db
-from app.core.security import get_current_user, get_current_admin, get_optional_user
+from app.core.security import get_current_admin, get_optional_user
 from app.utils.helpers import serialize_doc
+from app.utils.media import save_upload, save_many, delete_media_file, _has_file
 
 router = APIRouter(prefix="/hosts", tags=["Host Users - Discover"])
 
-UPLOAD_DIR_PIC = "static/uploads/hosts/pics"
-UPLOAD_DIR_VID = "static/uploads/hosts/videos"
-os.makedirs(UPLOAD_DIR_PIC, exist_ok=True)
-os.makedirs(UPLOAD_DIR_VID, exist_ok=True)
+LEVELS_MAP = {1: "Newcomer", 2: "Explorer", 3: "Regular", 4: "Active", 5: "Popular",
+              6: "Star", 7: "Super Star", 8: "Legend", 9: "Elite", 10: "Champion"}
+
+# Admin-only fields — bot prompt/context kabhi public API me nahi jaana chahiye.
+PRIVATE_FIELDS = ("bot_personality", "bot_instructions")
+CLEARABLE_FIELDS = {"bio", "description", "city", "language", "interests",
+                    "bot_greeting", "bot_personality", "bot_instructions"}
+
+
+def effective_call_video(host: dict) -> Optional[str]:
+    """Video played during a call: dedicated call video → preview video → first gallery video."""
+    return host.get("call_video") or host.get("preview_video") or next(iter(host.get("videos") or []), None)
+
+
+def public_host(host: dict) -> dict:
+    """Serialize a host for the user app (strips admin-only bot context)."""
+    data = serialize_doc(host)
+    for f in PRIVATE_FIELDS:
+        data.pop(f, None)
+    data.setdefault("images", [])
+    data.setdefault("videos", [])
+    data.setdefault("description", "")
+    data["call_video"] = effective_call_video(host)
+    data["has_call_video"] = bool(data["call_video"])
+    data["has_bot"] = bool(host.get("bot_enabled", True))
+    return data
+
+
+def admin_host(host: dict) -> dict:
+    data = serialize_doc(host)
+    data.setdefault("images", [])
+    data.setdefault("videos", [])
+    data["effective_call_video"] = effective_call_video(host)
+    return data
+
+
+def _csv(v: Optional[str]) -> List[str]:
+    return [i.strip() for i in (v or "").split(",") if i.strip()]
+
+
+def _oid(host_id: str) -> ObjectId:
+    try:
+        return ObjectId(host_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid host ID")
+
 
 # ========== PUBLIC / USER ENDPOINTS ==========
 
@@ -45,7 +87,7 @@ async def discover_hosts(
 
     return {
         "success": True,
-        "hosts": [serialize_doc(h) for h in hosts],
+        "hosts": [public_host(h) for h in hosts],
         "total": total,
         "page": page,
         "total_pages": (total + limit - 1) // limit,
@@ -56,24 +98,21 @@ async def discover_hosts(
 async def get_featured_hosts(db=Depends(get_db)):
     """Get featured/top hosts for banner"""
     hosts = await db.host_users.find({"is_active": True, "is_featured": True}).limit(10).to_list(10)
-    return {"success": True, "hosts": [serialize_doc(h) for h in hosts]}
+    return {"success": True, "hosts": [public_host(h) for h in hosts]}
 
 @router.get("/online")
 async def get_online_hosts(db=Depends(get_db)):
     """Get currently online/available hosts"""
     hosts = await db.host_users.find({"is_active": True, "is_online": True}).to_list(50)
-    return {"success": True, "hosts": [serialize_doc(h) for h in hosts], "count": len(hosts)}
+    return {"success": True, "hosts": [public_host(h) for h in hosts], "count": len(hosts)}
 
 @router.get("/{host_id}")
 async def get_host_detail(host_id: str, db=Depends(get_db)):
-    """Get single host details"""
-    try:
-        host = await db.host_users.find_one({"_id": ObjectId(host_id), "is_active": True})
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid host ID")
+    """Host profile page — info, images, videos, call price"""
+    host = await db.host_users.find_one({"_id": _oid(host_id), "is_active": True})
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
-    return {"success": True, "host": serialize_doc(host)}
+    return {"success": True, "host": public_host(host)}
 
 # ========== ADMIN ENDPOINTS ==========
 
@@ -85,52 +124,64 @@ async def admin_add_host(
     level: int = Form(1),
     price_per_minute: float = Form(10.0),
     bio: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
     interests: Optional[str] = Form(None),
     language: Optional[str] = Form("Hindi, English"),
+    is_online: bool = Form(True),
+    is_featured: bool = Form(False),
+    # Bot / chat context
+    bot_enabled: bool = Form(True),
+    bot_greeting: Optional[str] = Form(None),
+    bot_personality: Optional[str] = Form(None),
+    bot_instructions: Optional[str] = Form(None),
+    # Media
     profile_picture: Optional[UploadFile] = File(None),
     preview_video: Optional[UploadFile] = File(None),
+    call_video: Optional[UploadFile] = File(None),
+    images: List[UploadFile] = File(default=[]),
+    videos: List[UploadFile] = File(default=[]),
     db=Depends(get_db),
     admin=Depends(get_current_admin)
 ):
-    """Admin: Add new host user"""
-    pic_url = None
-    if profile_picture and profile_picture.filename:
-        ext = profile_picture.filename.split(".")[-1].lower()
-        if ext not in ["jpg", "jpeg", "png", "webp"]:
-            raise HTTPException(status_code=400, detail="Invalid image format")
-        filename = f"{uuid.uuid4()}.{ext}"
-        async with aiofiles.open(f"{UPLOAD_DIR_PIC}/{filename}", "wb") as f:
-            await f.write(await profile_picture.read())
-        pic_url = f"/static/uploads/hosts/pics/{filename}"
+    """Admin: Add new host (profile pic, gallery images, videos, call video, price, bot context)"""
+    if price_per_minute <= 0:
+        raise HTTPException(status_code=400, detail="Price per minute must be positive")
 
-    video_url = None
-    if preview_video and preview_video.filename:
-        ext = preview_video.filename.split(".")[-1].lower()
-        if ext not in ["mp4", "webm", "mov"]:
-            raise HTTPException(status_code=400, detail="Invalid video format")
-        filename = f"{uuid.uuid4()}.{ext}"
-        async with aiofiles.open(f"{UPLOAD_DIR_VID}/{filename}", "wb") as f:
-            await f.write(await preview_video.read())
-        video_url = f"/static/uploads/hosts/videos/{filename}"
+    pic_url = await save_upload(profile_picture, "image") if _has_file(profile_picture) else None
+    preview_url = await save_upload(preview_video, "video") if _has_file(preview_video) else None
+    call_url = await save_upload(call_video, "video") if _has_file(call_video) else None
+    image_urls = await save_many(images, "image")
+    video_urls = await save_many(videos, "video")
 
-    levels_map = {1: "Newcomer", 2: "Explorer", 3: "Regular", 4: "Active", 5: "Popular",
-                  6: "Star", 7: "Super Star", 8: "Legend", 9: "Elite", 10: "Champion"}
+    # Profile pic nahi diya toh pehli gallery image use karo
+    if not pic_url and image_urls:
+        pic_url = image_urls[0]
 
     host_doc = {
-        "name": name,
+        "name": name.strip(),
         "age": age,
         "gender": gender,
         "level": level,
-        "level_title": levels_map.get(level, "Newcomer"),
+        "level_title": LEVELS_MAP.get(level, "Newcomer"),
         "price_per_minute": price_per_minute,
         "bio": bio or f"Hi! I'm {name}. Let's have a great conversation!",
-        "interests": [i.strip() for i in interests.split(",")] if interests else [],
+        "description": description or "",
+        "city": city or "",
+        "interests": _csv(interests),
         "language": language,
         "profile_picture": pic_url,
-        "preview_video": video_url,
+        "preview_video": preview_url,
+        "call_video": call_url,
+        "images": image_urls,
+        "videos": video_urls,
+        "bot_enabled": bot_enabled,
+        "bot_greeting": (bot_greeting or "").strip(),
+        "bot_personality": (bot_personality or "").strip(),
+        "bot_instructions": (bot_instructions or "").strip(),
         "is_active": True,
-        "is_online": True,
-        "is_featured": False,
+        "is_online": is_online,
+        "is_featured": is_featured,
         "total_calls": 0,
         "total_minutes": 0,
         "total_earnings": 0.0,
@@ -143,7 +194,7 @@ async def admin_add_host(
     result = await db.host_users.insert_one(host_doc)
     host_doc["_id"] = result.inserted_id
 
-    return {"success": True, "message": "Host added successfully", "host": serialize_doc(host_doc)}
+    return {"success": True, "message": "Host added successfully", "host": admin_host(host_doc)}
 
 @router.put("/admin/{host_id}")
 async def admin_update_host(
@@ -154,66 +205,142 @@ async def admin_update_host(
     level: Optional[int] = Form(None),
     price_per_minute: Optional[float] = Form(None),
     bio: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
     interests: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
     is_active: Optional[bool] = Form(None),
     is_featured: Optional[bool] = Form(None),
     is_online: Optional[bool] = Form(None),
+    bot_enabled: Optional[bool] = Form(None),
+    bot_greeting: Optional[str] = Form(None),
+    bot_personality: Optional[str] = Form(None),
+    bot_instructions: Optional[str] = Form(None),
+    # Existing gallery video ko call video banana ho toh uska URL bhejo
+    call_video_url: Optional[str] = Form(None),
+    # FastAPI khali form strings ko "not sent" maanta hai — text field clear
+    # karne ke liye uska naam yahan bhejo (comma separated), e.g. "description,city"
+    clear_fields: Optional[str] = Form(None),
     profile_picture: Optional[UploadFile] = File(None),
     preview_video: Optional[UploadFile] = File(None),
+    call_video: Optional[UploadFile] = File(None),
+    images: List[UploadFile] = File(default=[]),   # appended to gallery
+    videos: List[UploadFile] = File(default=[]),   # appended to gallery
     db=Depends(get_db),
     admin=Depends(get_current_admin)
 ):
-    """Admin: Update host details"""
+    """Admin: Update host details. New images/videos are appended to the gallery."""
+    oid = _oid(host_id)
+    existing = await db.host_users.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Host not found")
+
     update_data = {"updated_at": datetime.utcnow()}
-    
-    if name: update_data["name"] = name
+    push = {}
+
+    if name: update_data["name"] = name.strip()
     if age: update_data["age"] = age
     if gender: update_data["gender"] = gender
     if level:
-        levels_map = {1: "Newcomer", 2: "Explorer", 3: "Regular", 4: "Active", 5: "Popular",
-                      6: "Star", 7: "Super Star", 8: "Legend", 9: "Elite", 10: "Champion"}
         update_data["level"] = level
-        update_data["level_title"] = levels_map.get(level, "Newcomer")
-    if price_per_minute is not None: update_data["price_per_minute"] = price_per_minute
-    if bio: update_data["bio"] = bio
-    if interests: update_data["interests"] = [i.strip() for i in interests.split(",")]
+        update_data["level_title"] = LEVELS_MAP.get(level, "Newcomer")
+    if price_per_minute is not None:
+        if price_per_minute <= 0:
+            raise HTTPException(status_code=400, detail="Price per minute must be positive")
+        update_data["price_per_minute"] = price_per_minute
+    # Text fields: empty string allowed (admin clearing a field)
+    if bio is not None: update_data["bio"] = bio
+    if description is not None: update_data["description"] = description
+    if city is not None: update_data["city"] = city
+    if language is not None: update_data["language"] = language
+    if interests is not None: update_data["interests"] = _csv(interests)
     if is_active is not None: update_data["is_active"] = is_active
     if is_featured is not None: update_data["is_featured"] = is_featured
     if is_online is not None: update_data["is_online"] = is_online
+    if bot_enabled is not None: update_data["bot_enabled"] = bot_enabled
+    if bot_greeting is not None: update_data["bot_greeting"] = bot_greeting.strip()
+    if bot_personality is not None: update_data["bot_personality"] = bot_personality.strip()
+    if bot_instructions is not None: update_data["bot_instructions"] = bot_instructions.strip()
 
-    if profile_picture and profile_picture.filename:
-        ext = profile_picture.filename.split(".")[-1].lower()
-        filename = f"{uuid.uuid4()}.{ext}"
-        async with aiofiles.open(f"{UPLOAD_DIR_PIC}/{filename}", "wb") as f:
-            await f.write(await profile_picture.read())
-        update_data["profile_picture"] = f"/static/uploads/hosts/pics/{filename}"
+    for f in _csv(clear_fields):
+        if f in CLEARABLE_FIELDS:
+            update_data[f] = [] if f == "interests" else ""
 
-    if preview_video and preview_video.filename:
-        ext = preview_video.filename.split(".")[-1].lower()
-        filename = f"{uuid.uuid4()}.{ext}"
-        async with aiofiles.open(f"{UPLOAD_DIR_VID}/{filename}", "wb") as f:
-            await f.write(await preview_video.read())
-        update_data["preview_video"] = f"/static/uploads/hosts/videos/{filename}"
+    if _has_file(profile_picture):
+        update_data["profile_picture"] = await save_upload(profile_picture, "image")
+    if _has_file(preview_video):
+        update_data["preview_video"] = await save_upload(preview_video, "video")
+    if _has_file(call_video):
+        update_data["call_video"] = await save_upload(call_video, "video")
+    elif call_video_url is not None:
+        allowed = set(existing.get("videos") or []) | {existing.get("preview_video"), existing.get("call_video")}
+        if call_video_url and call_video_url not in allowed:
+            raise HTTPException(status_code=400, detail="call_video_url must be one of this host's videos")
+        update_data["call_video"] = call_video_url or None
 
-    try:
-        result = await db.host_users.update_one({"_id": ObjectId(host_id)}, {"$set": update_data})
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid host ID")
+    new_images = await save_many(images, "image")
+    new_videos = await save_many(videos, "video")
+    if new_images:
+        push["images"] = {"$each": new_images}
+        if not existing.get("profile_picture") and "profile_picture" not in update_data:
+            update_data["profile_picture"] = new_images[0]
+    if new_videos:
+        push["videos"] = {"$each": new_videos}
 
-    # FIX: pehle non-existent host pe bhi "Host updated" return ho jaata tha
-    if result.matched_count == 0:
+    ops = {"$set": update_data}
+    if push:
+        ops["$push"] = push
+    await db.host_users.update_one({"_id": oid}, ops)
+
+    updated = await db.host_users.find_one({"_id": oid})
+    return {"success": True, "message": "Host updated", "host": admin_host(updated)}
+
+@router.delete("/admin/{host_id}/media")
+async def admin_delete_host_media(
+    host_id: str,
+    url: str = Query(..., description="Media URL to remove"),
+    kind: str = Query(..., enum=["image", "video", "call_video", "preview_video", "profile_picture"]),
+    db=Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Admin: Remove a single image/video from a host"""
+    oid = _oid(host_id)
+    host = await db.host_users.find_one({"_id": oid})
+    if not host:
         raise HTTPException(status_code=404, detail="Host not found")
 
-    updated = await db.host_users.find_one({"_id": ObjectId(host_id)})
-    return {"success": True, "message": "Host updated", "host": serialize_doc(updated)}
+    if kind == "image":
+        if url not in (host.get("images") or []):
+            raise HTTPException(status_code=404, detail="Image not found on host")
+        ops = {"$pull": {"images": url}}
+        if host.get("profile_picture") == url:
+            ops["$set"] = {"profile_picture": None}
+    elif kind == "video":
+        if url not in (host.get("videos") or []):
+            raise HTTPException(status_code=404, detail="Video not found on host")
+        ops = {"$pull": {"videos": url}}
+        if host.get("call_video") == url:
+            ops["$set"] = {"call_video": None}
+    else:
+        if host.get(kind) != url:
+            raise HTTPException(status_code=404, detail="Media not found on host")
+        ops = {"$set": {kind: None}}
+
+    await db.host_users.update_one({"_id": oid}, ops)
+    updated = await db.host_users.find_one({"_id": oid})
+
+    # File sirf tab delete karo jab host me kahin aur reference na ho
+    still_used = url in (updated.get("images") or []) + (updated.get("videos") or []) or url in (
+        updated.get("profile_picture"), updated.get("preview_video"), updated.get("call_video"))
+    if not still_used:
+        delete_media_file(url)
+
+    return {"success": True, "message": "Media removed", "host": admin_host(updated)}
 
 @router.delete("/admin/{host_id}")
 async def admin_delete_host(host_id: str, db=Depends(get_db), admin=Depends(get_current_admin)):
     """Admin: Delete host"""
-    try:
-        result = await db.host_users.delete_one({"_id": ObjectId(host_id)})
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid host ID")
+    result = await db.host_users.delete_one({"_id": _oid(host_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Host not found")
     return {"success": True, "message": "Host deleted"}
@@ -227,10 +354,18 @@ async def admin_list_hosts(
 ):
     """Admin: List all hosts"""
     skip = (page - 1) * limit
-    hosts = await db.host_users.find().skip(skip).limit(limit).to_list(limit)
+    hosts = await db.host_users.find().sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     total = await db.host_users.count_documents({})
     return {
         "success": True,
-        "hosts": [serialize_doc(h) for h in hosts],
+        "hosts": [admin_host(h) for h in hosts],
         "total": total
     }
+
+@router.get("/admin/{host_id}")
+async def admin_get_host(host_id: str, db=Depends(get_db), admin=Depends(get_current_admin)):
+    """Admin: Full host detail incl. inactive hosts + bot context"""
+    host = await db.host_users.find_one({"_id": _oid(host_id)})
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    return {"success": True, "host": admin_host(host)}

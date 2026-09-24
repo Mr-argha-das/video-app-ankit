@@ -66,11 +66,11 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                           return ListTile(
                             leading: CircleAvatar(
                               backgroundColor: AppTheme.purple.withOpacity(0.15),
-                              child: const Text('📹'),
+                              child: Text(c.isIncoming ? '📲' : '📹'),
                             ),
                             title: Text(c.hostName, style: const TextStyle(fontWeight: FontWeight.w700)),
                             subtitle: Text(
-                              '${c.durationSeconds > 0 ? '${mins}m ${secs}s · ' : ''}🪙 ${c.totalCost % 1 == 0 ? c.totalCost.toInt() : c.totalCost} · ${c.status}',
+                              '${c.durationSeconds > 0 ? '${mins}m ${secs}s · ' : ''}🪙 ${c.totalCost % 1 == 0 ? c.totalCost.toInt() : c.totalCost.toStringAsFixed(2)} · ${_statusLabel(c.status)}',
                               style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                             ),
                             trailing: Column(
@@ -88,4 +88,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                     ),
     );
   }
+
+  static String _statusLabel(String s) => const {
+        'completed': 'completed',
+        'ended_insufficient_balance': 'balance khatam',
+        'timed_out': 'disconnected',
+        'cancelled': 'cancelled',
+        'rejected': 'rejected',
+        'missed': 'missed',
+      }[s] ??
+      s;
 }

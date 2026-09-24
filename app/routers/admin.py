@@ -62,7 +62,7 @@ async def admin_dashboard(db=Depends(get_db), admin=Depends(get_current_admin)):
 
     # Call stats
     total_calls = await db.call_logs.count_documents({})
-    completed_calls = await db.call_logs.count_documents({"status": "completed"})
+    completed_calls = await db.call_logs.count_documents({"status": {"$in": ["completed", "ended_insufficient_balance", "timed_out"]}})
     calls_today = await db.call_logs.count_documents({"created_at": {"$gte": today_start}})
 
     # Revenue

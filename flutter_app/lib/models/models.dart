@@ -9,6 +9,9 @@ String mediaUrl(String? path) {
 
 num _num(dynamic v, [num fallback = 0]) => v is num ? v : fallback;
 
+List<String> _urlList(dynamic v) =>
+    v is List ? v.map((e) => mediaUrl(e?.toString())).where((e) => e.isNotEmpty).toList() : const <String>[];
+
 class Host {
   final String id;
   final String name;
@@ -22,6 +25,15 @@ class Host {
   final String? language;
   final String profilePic;
   final String previewVideo;
+  final String description;
+  final String city;
+  final List<String> images;
+  final List<String> videos;
+
+  /// Admin-uploaded video that plays during a call (after the connecting screen).
+  final String callVideo;
+  final bool hasBot;
+  final String botGreeting;
   final bool isOnline;
   final bool isFeatured;
   final double rating;
@@ -42,6 +54,13 @@ class Host {
     this.language,
     this.profilePic = '',
     this.previewVideo = '',
+    this.description = '',
+    this.city = '',
+    this.images = const [],
+    this.videos = const [],
+    this.callVideo = '',
+    this.hasBot = true,
+    this.botGreeting = '',
     this.isOnline = false,
     this.isFeatured = false,
     this.rating = 0,
@@ -63,6 +82,13 @@ class Host {
         language: j['language']?.toString(),
         profilePic: mediaUrl(j['profile_picture']?.toString()),
         previewVideo: mediaUrl(j['preview_video']?.toString()),
+        description: (j['description'] ?? '').toString(),
+        city: (j['city'] ?? '').toString(),
+        images: _urlList(j['images']),
+        videos: _urlList(j['videos']),
+        callVideo: mediaUrl((j['call_video'] ?? j['preview_video'])?.toString()),
+        hasBot: j['has_bot'] != false,
+        botGreeting: (j['bot_greeting'] ?? '').toString(),
         isOnline: j['is_online'] == true,
         isFeatured: j['is_featured'] == true,
         rating: _num(j['rating']).toDouble(),
@@ -70,6 +96,31 @@ class Host {
         totalCalls: _num(j['total_calls']).toInt(),
         totalMinutes: _num(j['total_minutes']).toInt(),
       );
+
+  /// Video to play during calls: dedicated call video → preview → first gallery video.
+  String get playableCallVideo =>
+      callVideo.isNotEmpty ? callVideo : (previewVideo.isNotEmpty ? previewVideo : (videos.isNotEmpty ? videos.first : ''));
+
+  /// All photos for the profile gallery (profile pic first, no duplicates).
+  List<String> get galleryImages {
+    final out = <String>[];
+    if (profilePic.isNotEmpty) out.add(profilePic);
+    for (final i in images) {
+      if (!out.contains(i)) out.add(i);
+    }
+    return out;
+  }
+
+  /// All videos for the profile page (no duplicates).
+  List<String> get galleryVideos {
+    final out = <String>[];
+    for (final v in [...videos, previewVideo, callVideo]) {
+      if (v.isNotEmpty && !out.contains(v)) out.add(v);
+    }
+    return out;
+  }
+
+  String get priceLabel => pricePerMinute % 1 == 0 ? pricePerMinute.toInt().toString() : pricePerMinute.toStringAsFixed(1);
 
   String get genderEmoji => gender == 'male' ? '👨' : gender == 'female' ? '👩' : '🙂';
 }
@@ -177,6 +228,7 @@ class RechargeItem {
 class CallLogItem {
   final String hostName;
   final String status;
+  final bool isIncoming;
   final int durationSeconds;
   final double totalCost;
   final int? rating;
@@ -185,6 +237,7 @@ class CallLogItem {
   CallLogItem({
     required this.hostName,
     required this.status,
+    this.isIncoming = false,
     this.durationSeconds = 0,
     this.totalCost = 0,
     this.rating,
@@ -194,6 +247,7 @@ class CallLogItem {
   factory CallLogItem.fromJson(Map<String, dynamic> j) => CallLogItem(
         hostName: (j['host_name'] ?? 'Host').toString(),
         status: (j['status'] ?? '').toString(),
+        isIncoming: j['call_type'] == 'incoming',
         durationSeconds: _num(j['duration_seconds']).toInt(),
         totalCost: _num(j['total_cost']).toDouble(),
         rating: j['rating'] is num ? (j['rating'] as num).toInt() : null,
@@ -241,5 +295,68 @@ class LeaderboardUser {
         levelTitle: (j['level_title'] ?? '').toString(),
         xp: _num(j['xp']).toInt(),
         profilePic: mediaUrl(j['profile_picture']?.toString()),
+      );
+}
+
+
+/// Runtime settings configured by admin (GET /settings/app).
+class AppSettings {
+  final int connectingSeconds;
+  final int billingTickSeconds;
+  final bool incomingCallEnabled;
+  final int incomingCallIntervalSeconds;
+  final int incomingRingTimeoutSeconds;
+  final String? priyaHostId;
+  final String priyaName;
+
+  const AppSettings({
+    this.connectingSeconds = 10,
+    this.billingTickSeconds = 5,
+    this.incomingCallEnabled = true,
+    this.incomingCallIntervalSeconds = 180,
+    this.incomingRingTimeoutSeconds = 30,
+    this.priyaHostId,
+    this.priyaName = 'Priya',
+  });
+
+  factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
+        connectingSeconds: _num(j['connecting_seconds'], 10).toInt(),
+        billingTickSeconds: _num(j['billing_tick_seconds'], 5).toInt().clamp(2, 60).toInt(),
+        incomingCallEnabled: j['incoming_call_enabled'] != false,
+        incomingCallIntervalSeconds: _num(j['incoming_call_interval_seconds'], 180).toInt(),
+        incomingRingTimeoutSeconds: _num(j['incoming_ring_timeout_seconds'], 30).toInt(),
+        priyaHostId: j['priya_host_id']?.toString(),
+        priyaName: (j['priya_name'] ?? 'Priya').toString(),
+      );
+}
+
+/// Priya page bot persona (GET /chat/bot/persona).
+class ChatPersona {
+  final String name;
+  final String? hostId;
+  final bool isDefault;
+  final String avatar;
+  final String greeting;
+  final Host? host;
+  final bool aiPowered;
+
+  const ChatPersona({
+    required this.name,
+    this.hostId,
+    this.isDefault = true,
+    this.avatar = '',
+    this.greeting = '',
+    this.host,
+    this.aiPowered = false,
+  });
+
+  factory ChatPersona.fromJson(Map<String, dynamic> j) => ChatPersona(
+        name: (j['name'] ?? 'Priya').toString(),
+        hostId: j['host_id']?.toString(),
+        isDefault: j['is_default'] == true,
+        avatar: mediaUrl(j['avatar']?.toString()),
+        greeting: (j['greeting'] ?? '').toString(),
+        host: j['host'] is Map ? Host.fromJson(Map<String, dynamic>.from(j['host'])) : null,
+        aiPowered: j['ai_powered'] == true,
       );
 }

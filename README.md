@@ -46,34 +46,54 @@ uvicorn main:app --reload
 | GET | `/hosts/featured` | Featured hosts for banner |
 | GET | `/hosts/online` | Currently online hosts |
 | GET | `/hosts/{id}` | Single host detail |
-| POST | `/hosts/admin/add` | Admin: Add host (form-data) |
-| PUT | `/hosts/admin/{id}` | Admin: Update host |
+| POST | `/hosts/admin/add` | Admin: Add host (form-data: profile pic, `images[]`, `videos[]`, preview/call video, description, city, rate, AI bot fields) |
+| PUT | `/hosts/admin/{id}` | Admin: Update host (naye images/videos append hote hain; `clear_fields=a,b` se fields khali karo) |
+| DELETE | `/hosts/admin/{id}/media` | Admin: Ek media hatao `?kind=image\|video\|call_video\|preview_video\|profile_picture&url=...` |
 | DELETE | `/hosts/admin/{id}` | Admin: Delete host |
 | GET | `/hosts/admin/list/all` | Admin: All hosts list |
+| GET | `/hosts/admin/{id}` | Admin: Full host (bot personality/instructions ke saath) |
 
 ### 📹 VIDEO CALLS — `/api/v1/calls`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/calls/initiate` | Start call with host `{"host_id": "..."}` |
-| POST | `/calls/answer/{call_id}` | Mark call as answered |
-| POST | `/calls/billing-check` | **Call every 60 sec** — deducts coins, returns continue/end_call |
-| POST | `/calls/end` | End call, add rating |
-| GET | `/calls/random-host` | Get random incoming call (simulate) |
+| POST | `/calls/initiate` | Start call `{"host_id": "...", "call_type": "outgoing"\|"incoming"}` — **402** agar balance < 1 min; returns `call_video`, `connecting_seconds`, `billing_tick_seconds` |
+| POST | `/calls/answer/{call_id}` | Connecting khatam → call active, billing shuru |
+| POST | `/calls/billing-check` | Har few sec (default 5s) — per-second deduction, returns `continue` / `low_balance` warning / `end_call` |
+| POST | `/calls/end` | End call, add rating (unanswered = free) |
+| GET | `/calls/random-host` | Incoming call ke liye random online host + `ring_timeout_seconds` |
+| POST | `/calls/incoming/respond` | Incoming log `{"host_id": "...", "action": "rejected"\|"missed"}` |
 | GET | `/calls/history` | User's call history |
 | GET | `/calls/admin/all` | Admin: All calls |
 
-#### 💡 Call Billing Flow:
+#### 💡 Call Flow (outgoing + incoming same):
 ```
-1. POST /calls/initiate  → get call_id
-2. POST /calls/answer/{call_id}  → call starts
-3. Every 60 seconds → POST /calls/billing-check {"call_id": "..."}
-   - Server-side time based billing: sirf elapsed full minutes charge hote hain
-     (spam-safe, aur skipped checks bhi catch ho jaate hain)
-   - Response: {"action": "continue"} or {"action": "end_call", "reason": "insufficient_balance"}
-4. POST /calls/end {"call_id": "...", "rating": 5}
-   - End pe final settlement: unbilled elapsed minutes auto-charge
+1. POST /calls/initiate        → call_id, call_video, connecting_seconds (default 10)
+   (402 = balance kam → app recharge prompt dikhata hai)
+2. App "Calling… / Connecting…" screen dikhata hai (connecting_seconds) — isme koi charge nahi
+3. POST /calls/answer/{call_id} → host ka admin-uploaded video play hota hai, billing start
+4. Har billing_tick_seconds → POST /calls/billing-check {"call_id": "..."}
+   - Server-side per-second billing (rate/min ÷ 60), atomic debit — double charge impossible
+   - ≤ 60 sec ka balance bacha → "low_balance": true (app banner + Recharge button)
+   - Balance khatam → {"action": "end_call", "reason": "insufficient_balance"} → call auto-end,
+     status ended_insufficient_balance, app "balance khatam" notice + recharge prompt
+   - Heartbeat 45 sec tak nahi aaya → call timed_out (sirf utne time ka charge)
+5. POST /calls/end {"call_id": "...", "rating": 5} → final settlement
 ```
+
+#### 📲 Incoming calls
+App open & use me ho toh har `incoming_call_interval_seconds` (default 180 = ~3 min, admin
+panel se change) pe `GET /calls/random-host` → Incoming screen (Accept / Reject, 30s ring).
+Accept → `initiate` with `call_type: "incoming"` → upar wala same flow. Balance < 1 min ho
+toh incoming call nahi aati. Reject/miss → `/calls/incoming/respond`.
+
+### ⚙️ APP SETTINGS — `/api/v1/settings`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/settings/app` | Public: connecting seconds, billing tick, incoming interval, Priya name/avatar |
+| GET | `/settings/admin` | Admin: saari settings (Priya bot personality/instructions bhi) |
+| PUT | `/settings/admin` | Admin: update (partial JSON) |
 
 ### 💰 WALLET — `/api/v1/wallet`
 
@@ -124,10 +144,12 @@ uvicorn main:app --reload
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/chat/bot/message` | Chat with Hinglish bot Priya `{"message": "Heyy!", "conversation_id": null}` |
+| GET | `/chat/bot/persona?host_id=` | Persona info (Priya default ya kisi host ka) — name, avatar, greeting, call host |
+| POST | `/chat/bot/message` | AI chat `{"message": "Heyy!", "conversation_id": null, "host_id": null}` — Hindi / English / Hinglish auto-detect |
 | GET | `/chat/bot/history/{conv_id}` | Get chat history |
 | GET | `/chat/bot/my-conversations` | All bot conversations |
-| POST | `/chat/bot/new-session` | Start fresh chat session |
+| POST | `/chat/bot/new-session` | Fresh session `{"host_id": null}` → conversation_id + greeting |
+| POST | `/chat/admin/bot-test` | Admin: bot ko test karo (save se pehle) |
 | POST | `/chat/random-match` | Random match with host `{"interest": "Music"}` |
 | GET | `/chat/random-match/interests` | Popular interests for filter |
 
@@ -153,6 +175,15 @@ uvicorn main:app --reload
 | GET | `/admin/analytics?days=30` | Analytics over time |
 | POST | `/admin/notifications/send` | Send notification |
 | GET | `/admin/notifications` | All notifications |
+
+---
+
+### 🤖 AI bot kaise kaam karta hai
+- Persona = admin panel ki info: **Priya & Calls** page (default Priya) ya host modal ka "AI Chat" section
+  (personality, interests, background, conversation style, instructions, greeting).
+- User jis language me likhe (Hindi देवनागरी / English / Hinglish) usi me reply — last messages ka context bhi jaata hai.
+- `AI_API_KEY` set ho toh koi bhi OpenAI-compatible LLM (`AI_BASE_URL`, `AI_MODEL`); warna built-in
+  rule-based Hindi/English/Hinglish fallback (app kabhi break nahi hota).
 
 ---
 
@@ -225,6 +256,12 @@ DATABASE_NAME=videocall_app
 SECRET_KEY=your-secret-key-here-min-32-chars
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-strong-admin-password
+MAX_VIDEO_SIZE=104857600          # host videos (100 MB)
+
+# AI chat (optional — khali = built-in fallback bot)
+AI_API_KEY=
+AI_BASE_URL=https://api.openai.com/v1
+AI_MODEL=gpt-4o-mini
 ```
 
 ## 🔒 Security Notes
