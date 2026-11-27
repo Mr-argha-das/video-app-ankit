@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.core.database import connect_db, close_db
-from app.routers import auth, hosts, upid_module, wallet, calls, gifts, chat, admin, levels
+from app.routers import auth, otp, users, hosts, upid_module, wallet, calls, gifts, chat, admin, pages, levels, settings as app_settings_router
 
 # Create upload directories
 for dir_path in [
@@ -24,10 +24,10 @@ app = FastAPI(
 ### Features:
 - 🔐 **Auth**: Register, Login, Guest Mode
 - 🏠 **Discover**: Browse admin-added hosts
-- 📹 **Video Calls**: Call hosts with real-time billing
+- 📹 **Video Calls**: 10s connecting screen → host video, continuous per-second wallet billing, incoming calls
 - 💰 **Wallet**: Recharge, transactions, coin packages  
 - 🎁 **Gifts**: Purchase and send gifts during calls
-- 🤖 **Chat Bot**: Hinglish bot 'Priya' 
+- 🤖 **Priya AI Bot**: Hindi / English / Hinglish, admin-configured persona
 - 🎯 **Random Match**: Get matched with random hosts
 - ⭐ **Levels**: XP-based level progression
 - 👮 **Admin**: Full admin panel
@@ -65,14 +65,18 @@ async def shutdown():
 
 # Include all routers
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(otp.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
 app.include_router(hosts.router, prefix="/api/v1")
 app.include_router(wallet.router, prefix="/api/v1")
 app.include_router(calls.router, prefix="/api/v1")
 app.include_router(gifts.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(pages.router, prefix="/api/v1")
 app.include_router(levels.router, prefix="/api/v1")
 app.include_router(upid_module.router, prefix="/api/v1")
+app.include_router(app_settings_router.router, prefix="/api/v1")
 
 @app.get("/", response_class=HTMLResponse)
 async def root():

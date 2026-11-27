@@ -38,10 +38,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     final name = _name.text.trim();
-    final mobile = _mobile.text.trim();
+    var mobile = _mobile.text.replaceAll(RegExp(r'\D'), '');
+    if (mobile.length == 12 && mobile.startsWith('91')) mobile = mobile.substring(2);
+    if (mobile.length == 11 && mobile.startsWith('0')) mobile = mobile.substring(1);
     final password = _password.text;
-    if (name.isEmpty || mobile.length != 10 || password.length < 4) {
-      showSnack(context, 'Name, valid mobile, aur 4+ char password daalo', error: true);
+    if (name.isEmpty) {
+      showSnack(context, 'Apna naam daalo', error: true);
+      return;
+    }
+    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(mobile)) {
+      showSnack(context, 'Valid 10-digit mobile number daalo (6/7/8/9 se shuru)', error: true);
+      return;
+    }
+    if (password.length < 4) {
+      showSnack(context, 'Password kam se kam 4 characters ka hona chahiye', error: true);
       return;
     }
     try {
@@ -61,8 +71,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, error: true);
-    } catch (_) {
-      if (mounted) showSnack(context, 'Registration failed — server check karo', error: true);
+    } catch (e) {
+      if (mounted) showSnack(context, 'Registration failed: $e', error: true);
     }
   }
 
@@ -102,7 +112,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             TextField(
               controller: _mobile,
               keyboardType: TextInputType.phone,
-              maxLength: 10,
+              maxLength: 14,
               decoration: const InputDecoration(labelText: 'Mobile Number', prefixText: '+91 ', counterText: ''),
             ),
             const SizedBox(height: 14),
