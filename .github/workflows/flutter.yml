@@ -1,4 +1,4 @@
-name: Flutter CI — Build Two APKs
+name: Flutter CI — Minimal Build Test
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-apks:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -42,62 +42,36 @@ jobs:
           echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
-      - name: Build Orange APK (videcall1) — swap main.dart
+      - name: Build APK release (minimal, no target)
         working-directory: flutter_app
         run: |
-          cp lib/main.dart lib/main.dart.bak
-          cp lib/main_orange.dart lib/main.dart
           set +e
-          flutter build apk --release --verbose 2>&1 | tee build_orange.log
-          ORANGE_EXIT=${PIPESTATUS[0]}
-          echo "ORANGE_EXIT_CODE=$ORANGE_EXIT" >> build_orange.log
-          cp lib/main.dart.bak lib/main.dart
-          rm lib/main.dart.bak
-          if [ "$ORANGE_EXIT" -ne 0 ]; then
-            cp build_orange.log ../ci-logs/build_orange.log 2>/dev/null || mkdir -p ../ci-logs && cp build_orange.log ../ci-logs/build_orange.log
-            exit $ORANGE_EXIT
-          fi
+          flutter build apk --release --verbose 2>&1 | tee build_minimal.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "EXIT_CODE=$EXIT_CODE" >> build_minimal.log
+          exit $EXIT_CODE
 
-      - name: Build Dating APK (videcall2) — swap main.dart
+      - name: Find APKs
+        if: always()
         working-directory: flutter_app
         run: |
-          cp lib/main.dart lib/main.dart.bak
-          cp lib/main_dating.dart lib/main.dart
-          set +e
-          flutter build apk --release --verbose 2>&1 | tee build_dating.log
-          DATING_EXIT=${PIPESTATUS[0]}
-          echo "DATING_EXIT_CODE=$DATING_EXIT" >> build_dating.log
-          cp lib/main.dart.bak lib/main.dart
-          rm lib/main.dart.bak
-          if [ "$DATING_EXIT" -ne 0 ]; then
-            cp build_dating.log ../ci-logs/build_dating.log 2>/dev/null || mkdir -p ../ci-logs && cp build_dating.log ../ci-logs/build_dating.log
-            exit $DATING_EXIT
-          fi
+          find build -name "*.apk" 2>/dev/null || echo "No APKs found"
 
-      - name: Save build logs to repo
+      - name: Save log to repo
         if: always()
         run: |
           mkdir -p ci-logs
-          cp flutter_app/build_orange.log ci-logs/build_orange.log 2>/dev/null || true
-          cp flutter_app/build_dating.log ci-logs/build_dating.log 2>/dev/null || true
+          cp flutter_app/build_minimal.log ci-logs/build_minimal.log 2>/dev/null || true
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add ci-logs/
-          git commit -m "ci: save build logs" || true
+          git commit -m "ci: save minimal build log" || true
           git push || true
 
-      - name: Upload Orange APK artifact
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-orange-apk-videcall1
-          path: flutter_app/build/orange-app-release.apk
-          retention-days: 14
-
-      - name: Upload Dating APK artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-dating-apk-videcall2
-          path: flutter_app/build/dating-app-release.apk
+          name: build-minimal-log
+          path: flutter_app/build_minimal.log
           retention-days: 14
