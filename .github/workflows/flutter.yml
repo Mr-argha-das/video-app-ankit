@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17 (for Android builds)
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -24,7 +24,6 @@ jobs:
         with:
           channel: "stable"
           flutter-version: "3.19.x"
-          cache: true
 
       - name: Flutter doctor
         run: flutter doctor -v
@@ -33,80 +32,35 @@ jobs:
         working-directory: flutter_app
         run: flutter pub get
 
-      - name: Accept Android SDK licenses
-        run: yes | flutter doctor --android-licenses
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses 2>&1 || true
 
-      - name: Write local.properties for Gradle
-        run: |
-          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
-          echo "Flutter SDK dir: $FLUTTER_DIR"
-          echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
-          cat flutter_app/android/local.properties
-
-      - name: Run flutter analyze (capture output, don't fail)
+      - name: Build Orange APK
         working-directory: flutter_app
-        run: flutter analyze 2>&1 | tee analyze_output.txt || true
+        run: flutter build apk --release --target lib/main_orange.dart --dart-define=API_BASE_URL=https://videcall1.duckdns.org
 
-      - name: Upload analyze output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-analyze-output
-          path: flutter_app/analyze_output.txt
-          retention-days: 1
-
-      - name: Build Orange APK (videcall1.duckdns.org)
+      - name: Rename Orange APK
         working-directory: flutter_app
         run: |
-          set -o pipefail
-          flutter clean
-          flutter precache --android
-          flutter build apk --release --verbose \
-            --target lib/main_orange.dart \
-            --dart-define=API_BASE_URL=https://videcall1.duckdns.org 2>&1 | tee build_orange.log
           mkdir -p build/orange
-          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk || echo "APK NOT FOUND"
+          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk 2>/dev/null || echo "ORANGE APK NOT FOUND"
 
-      - name: Upload Orange build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-orange-log
-          path: flutter_app/build_orange.log
-          retention-days: 1
+      - name: Build Dating APK
+        working-directory: flutter_app
+        run: flutter build apk --release --target lib/main_dating.dart --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
 
-      - name: Build Dating APK (videcall2.duckdns.org)
+      - name: Rename Dating APK
         working-directory: flutter_app
         run: |
-          set -o pipefail
-          flutter clean
-          flutter precache --android
-          flutter build apk --release --verbose \
-            --target lib/main_dating.dart \
-            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org 2>&1 | tee build_dating.log
           mkdir -p build/dating
-          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk || echo "APK NOT FOUND"
+          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk 2>/dev/null || echo "DATING APK NOT FOUND"
 
-      - name: Upload Dating build log
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-dating-log
-          path: flutter_app/build_dating.log
-          retention-days: 1
-
-      - name: Upload Orange APK artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-orange-apk
-          path: flutter_app/build/orange/app-orange-release.apk
-          retention-days: 14
-
-      - name: Upload Dating APK artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-dating-apk
-          path: flutter_app/build/dating/app-dating-release.apk
+          name: flutter-apks
+          path: |
+            flutter_app/build/orange/app-orange-release.apk
+            flutter_app/build/dating/app-dating-release.apk
           retention-days: 14
