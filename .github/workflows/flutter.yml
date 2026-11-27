@@ -25,13 +25,31 @@ jobs:
           channel: "stable"
           flutter-version: "3.19.x"
 
-      - name: Find and configure Android SDK
+      - name: Setup Android SDK and build tools
         run: |
-          echo "Looking for Android SDK..."
-          ls -d /usr/lib/android-sdk 2>/dev/null && echo "Found at /usr/lib/android-sdk" || echo "Not at /usr/lib/android-sdk"
-          ls -d $HOME/android-sdk 2>/dev/null && echo "Found at $HOME/android-sdk" || echo "Not at $HOME/android-sdk"
-          ls -d /opt/android-sdk 2>/dev/null && echo "Found at /opt/android-sdk" || echo "Not at /opt/android-sdk"
-          which sdkmanager && sdkmanager --version || echo "sdkmanager not found"
+          # Find Android SDK
+          ANDROID_SDK=""
+          if [ -d "/usr/lib/android-sdk" ]; then ANDROID_SDK="/usr/lib/android-sdk"; fi
+          if [ -d "$HOME/android-sdk" ]; then ANDROID_SDK="$HOME/android-sdk"; fi
+          if [ -d "/opt/android-sdk" ]; then ANDROID_SDK="/opt/android-sdk"; fi
+          if [ -z "$ANDROID_SDK" ]; then
+            # Try to find it via flutter
+            ANDROID_SDK=$(flutter doctor -v 2>/dev/null | grep -i "android sdk" | head -1 | sed 's/.*→ //' | sed 's/ .*//')
+          fi
+          echo "ANDROID_SDK=$ANDROID_SDK"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$ANDROID_SDK" >> $GITHUB_ENV
+
+          # Install build tools if sdkmanager exists
+          if [ -n "$ANDROID_SDK" ] && [ -f "$ANDROID_SDK/tools/bin/sdkmanager" ]; then
+            echo "y" | "$ANDROID_SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34" 2>&1 || true
+          fi
+
+      - name: Configure Flutter for Android
+        run: |
+          if [ -n "$ANDROID_SDK_ROOT" ]; then
+            flutter config --android-sdk "$ANDROID_SDK_ROOT"
+          fi
 
       - name: Flutter doctor
         run: flutter doctor -v
