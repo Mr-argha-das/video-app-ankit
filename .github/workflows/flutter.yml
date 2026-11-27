@@ -24,6 +24,9 @@ jobs:
           channel: "stable"
           flutter-version: "3.19.x"
 
+      - name: Flutter precache Android
+        run: flutter precache --android
+
       - name: Flutter doctor
         run: flutter doctor -v
 
@@ -34,21 +37,29 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
-      - name: Clean and Build APK
+      - name: Build APK debug
+        working-directory: flutter_app
+        run: flutter build apk --debug 2>&1
+
+      - name: List debug APKs
         working-directory: flutter_app
         run: |
-          flutter clean
-          flutter build apk --release 2>&1
+          find build -name "*.apk" 2>/dev/null || echo "No debug APKs found"
 
-      - name: List APKs
+      - name: Build APK release
+        working-directory: flutter_app
+        run: flutter build apk --release 2>&1
+
+      - name: List release APKs
         working-directory: flutter_app
         run: |
-          find build -name "*.apk" 2>/dev/null || echo "No APKs found"
+          find build -name "*.apk" 2>/dev/null || echo "No release APKs found"
 
-      - name: Upload APK artifact
+      - name: Upload APKs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-apk
-          path: flutter_app/build/app/outputs/flutter-apk/*.apk
+          name: all-apks
+          path: |
+            flutter_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 14
