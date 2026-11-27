@@ -152,66 +152,73 @@ Sabke peeche prefix `/api/v1` hai.
 | 32 | GET | `/wallet/admin/recharges` | Admin | Query: status?(pending\|approved\|rejected), page, limit | `{success:true, recharges:[...], total, pending_count, page}` |
 | 33 | POST | `/wallet/admin/recharges/{request_id}/approve` | Admin | — | `{success:true, message:"X coins credited to user", new_balance}` |
 | 34 | POST | `/wallet/admin/recharges/{request_id}/reject` | Admin | JSON body?: `{reason?}` | `{success:true, message:"Recharge request rejected"}` |
+| 35 | GET | `/wallet/qr-config` | No | — | `{success:true, upi_id, qr_image_url}` |
+| 36 | POST | `/wallet/qr-config` | Admin | JSON: `{upi_id, qr_image_url}` | `{success:true, message:"QR config saved"}` |
+| 37 | POST | `/wallet/deposit` | User | multipart: `{amount, transaction_ref, screenshot}` | `{success:true, deposit_id, status:"pending", message:"Deposit request submitted"}` |
+| 38 | GET | `/wallet/my-deposits` | User | Query: page, limit | `{success:true, deposits:[{status,amount,transaction_ref,screenshot_url,admin_note,created_at}], total, page}` |
+| 39 | GET | `/wallet/admin/deposits` | Admin | Query: status?, page, limit | `{success:true, deposits:[{user_id,user_name,amount,transaction_ref,status,created_at}], total, pending_count, page}` |
+| 40 | POST | `/wallet/admin/deposits/{deposit_id}/approve` | Admin | JSON: `{amount}` | `{success:true, message:"₹X credited as coins", coins_credited, new_balance}` |
+| 41 | POST | `/wallet/admin/deposits/{deposit_id}/reject` | Admin | JSON: `{reason?}` | `{success:true, message:"Deposit request rejected"}` |
 
 ### Gifts (`app/routers/gifts.py`)
 | # | Method | Path | Auth | Request Body | Response Example |
 |---|--------|------|------|--------------|------------------|
-| 35 | GET | `/gifts/list` | No | — | `{success:true, gifts:[{id,name,emoji,coins,category,animation,is_active,total_sent}]}` |
-| 36 | GET | `/gifts/categories` | No | — | `{success:true, categories:[{category, gifts:[...]}]}` |
-| 37 | POST | `/gifts/send` | User | JSON: `{gift_id, host_id, call_id?, message?}` | `{success:true, message:"🎁 Rose 🌹 sent to X!", gift:{...}, coins_spent, new_balance, animation, xp_gained}` |
-| 38 | GET | `/gifts/my-history` | User | — | `{success:true, gifts:[{sender_name,host_name,gift_name,coins,created_at}], ...}` |
-| 39 | POST | `/gifts/admin/add` | Admin | JSON: `{name, emoji, coins, category, is_active, animation?}` | `{success:true, message:"Gift added", gift:{...}}` |
-| 40 | PUT | `/gifts/admin/{gift_id}` | Admin | JSON body?: `{name?, coins?, is_active?}` | `{success:true, message:"Gift updated"}` |
-| 41 | GET | `/gifts/admin/stats` | Admin | — | `{success:true, top_gifts:[...], total_gifts_sent, total_coins_from_gifts}` |
+| 42 | GET | `/gifts/list` | No | — | `{success:true, gifts:[{id,name,emoji,coins,category,animation,is_active,total_sent}]}` |
+| 43 | GET | `/gifts/categories` | No | — | `{success:true, categories:[{category, gifts:[...]}]}` |
+| 44 | POST | `/gifts/send` | User | JSON: `{gift_id, host_id, call_id?, message?}` | `{success:true, message:"🎁 Rose 🌹 sent to X!", gift:{...}, coins_spent, new_balance, animation, xp_gained}` |
+| 45 | GET | `/gifts/my-history` | User | — | `{success:true, gifts:[{sender_name,host_name,gift_name,coins,created_at}], ...}` |
+| 46 | POST | `/gifts/admin/add` | Admin | JSON: `{name, emoji, coins, category, is_active, animation?}` | `{success:true, message:"Gift added", gift:{...}}` |
+| 47 | PUT | `/gifts/admin/{gift_id}` | Admin | JSON body?: `{name?, coins?, is_active?}` | `{success:true, message:"Gift updated"}` |
+| 48 | GET | `/gifts/admin/stats` | Admin | — | `{success:true, top_gifts:[...], total_gifts_sent, total_coins_from_gifts}` |
 
 ### Chat / AI (`app/routers/chat.py`)
 | # | Method | Path | Auth | Request Body | Response Example |
 |---|--------|------|------|--------------|------------------|
-| 42 | GET | `/chat/bot/persona` | User | Query: host_id? | `{success:true, persona:{name,host_id,is_default,avatar,greeting,host:public_host?,ai_powered}}` |
-| 43 | POST | `/chat/bot/message` | User | JSON: `{message, conversation_id?, host_id?}` | `{success:true, conversation_id, bot_reply, bot_name, host_id, your_message, language, ai_powered, xp_gained}` |
-| 44 | GET | `/chat/bot/history/{conversation_id}` | User | — | `{success:true, conversation:{messages:[{sender,message,timestamp}],...}}` |
-| 45 | GET | `/chat/bot/thread` | User | Query: host_id? | `{success:true, conversation_id, messages:[...], persona:{...}}` |
-| 46 | GET | `/chat/inbox` | User | — | `{success:true, items:[{host_id,name,avatar,is_online,last_message,last_sender,last_time,unread}], total_unread}` |
-| 47 | GET | `/chat/bot/my-conversations` | User | — | `{success:true, conversations:[{...}]}` |
-| 48 | POST | `/chat/bot/new-session` | User | JSON body?: `{host_id?}` | `{success:true, conversation_id, greeting, bot_name, persona:{...}}` |
-| 49 | POST | `/chat/admin/bot-test` | Admin | JSON: `{message, host_id?, history:[...]}` | `{success:true, reply, ai_powered, language, persona_name, system_prompt}` |
-| 50 | POST | `/chat/random-match` | User | JSON: `{interest?}` | `{success:true, message:"Match mila! ...", matched_host:{...}, price_per_minute, action:"initiate_call"}` |
-| 51 | GET | `/chat/random-match/interests` | No | — | `{success:true, interests:["music","movies",...]}` |
+| 49 | GET | `/chat/bot/persona` | User | Query: host_id? | `{success:true, persona:{name,host_id,is_default,avatar,greeting,host:public_host?,ai_powered}}` |
+| 50 | POST | `/chat/bot/message` | User | JSON: `{message, conversation_id?, host_id?}` | `{success:true, conversation_id, bot_reply, bot_name, host_id, your_message, language, ai_powered, xp_gained}` |
+| 51 | GET | `/chat/bot/history/{conversation_id}` | User | — | `{success:true, conversation:{messages:[{sender,message,timestamp}],...}}` |
+| 52 | GET | `/chat/bot/thread` | User | Query: host_id? | `{success:true, conversation_id, messages:[...], persona:{...}}` |
+| 53 | GET | `/chat/inbox` | User | — | `{success:true, items:[{host_id,name,avatar,is_online,last_message,last_sender,last_time,unread}], total_unread}` |
+| 54 | GET | `/chat/bot/my-conversations` | User | — | `{success:true, conversations:[{...}]}` |
+| 55 | POST | `/chat/bot/new-session` | User | JSON body?: `{host_id?}` | `{success:true, conversation_id, greeting, bot_name, persona:{...}}` |
+| 56 | POST | `/chat/admin/bot-test` | Admin | JSON: `{message, host_id?, history:[...]}` | `{success:true, reply, ai_powered, language, persona_name, system_prompt}` |
+| 57 | POST | `/chat/random-match` | User | JSON: `{interest?}` | `{success:true, message:"Match mila! ...", matched_host:{...}, price_per_minute, action:"initiate_call"}` |
+| 58 | GET | `/chat/random-match/interests` | No | — | `{success:true, interests:["music","movies",...]}` |
 
 ### Admin (`app/routers/admin.py`)
 | # | Method | Path | Auth | Request Body | Response Example |
 |---|--------|------|------|--------------|------------------|
-| 52 | POST | `/admin/login` | No | JSON: `{username, password}` | `{success:true, message:"Admin login successful", access_token, token_type:"bearer", admin:{username,role:"admin"}}` |
-| 53 | GET | `/admin/dashboard` | Admin | — | `{success:true, dashboard:{users:{total,registered,guests,blocked,new_today,...}, hosts:{total,active,online}, calls:{total,completed,today,completion_rate}, revenue:{total_coins_recharged,today_inr,this_month_inr}, gifts:{total_sent,today}, top_users_by_balance:[...]}}` |
-| 54 | GET | `/admin/users` | Admin | Query: page, limit, search?, is_blocked?, is_guest? | `{success:true, users:[{id,name,mobile,wallet_balance,...(password excluded)}], total, page, total_pages}` |
-| 55 | GET | `/admin/users/{user_id}` | Admin | — | `{success:true, user:{...(password excluded)}, stats:{calls_made,total_gifts}, recent_transactions:[...]}` |
-| 56 | POST | `/admin/users/block` | Admin | JSON: `{user_id, reason?}` | `{success:true, message:"User blocked. Reason: ..."}` |
-| 57 | POST | `/admin/users/unblock/{user_id}` | Admin | — | `{success:true, message:"User unblocked successfully"}` |
-| 58 | DELETE | `/admin/users/{user_id}` | Admin | — | `{success:true, message:"User deleted"}` |
-| 59 | GET | `/admin/analytics` | Admin | Query: days?(30) | `{success:true, period_days, analytics:{daily_registrations:[{_id:date,count}], daily_calls:[{_id,count,revenue}], daily_recharges:[{_id,count,amount}]}}` |
-| 60 | POST | `/admin/notifications/send` | Admin | JSON: `{title, message, target:"all"\|"specific_user", user_id?}` | `{success:true, message:"Notification sent successfully"}` |
-| 61 | GET | `/admin/notifications` | Admin | — | `{success:true, notifications:[{title,message,target,user_id,sent_at}]}` |
+| 59 | POST | `/admin/login` | No | JSON: `{username, password}` | `{success:true, message:"Admin login successful", access_token, token_type:"bearer", admin:{username,role:"admin"}}` |
+| 60 | GET | `/admin/dashboard` | Admin | — | `{success:true, dashboard:{users:{total,registered,guests,blocked,new_today,...}, hosts:{total,active,online}, calls:{total,completed,today,completion_rate}, revenue:{total_coins_recharged,today_inr,this_month_inr}, gifts:{total_sent,today}, top_users_by_balance:[...]}}` |
+| 61 | GET | `/admin/users` | Admin | Query: page, limit, search?, is_blocked?, is_guest? | `{success:true, users:[{id,name,mobile,wallet_balance,...(password excluded)}], total, page, total_pages}` |
+| 62 | GET | `/admin/users/{user_id}` | Admin | — | `{success:true, user:{...(password excluded)}, stats:{calls_made,total_gifts}, recent_transactions:[...]}` |
+| 63 | POST | `/admin/users/block` | Admin | JSON: `{user_id, reason?}` | `{success:true, message:"User blocked. Reason: ..."}` |
+| 64 | POST | `/admin/users/unblock/{user_id}` | Admin | — | `{success:true, message:"User unblocked successfully"}` |
+| 65 | DELETE | `/admin/users/{user_id}` | Admin | — | `{success:true, message:"User deleted"}` |
+| 66 | GET | `/admin/analytics` | Admin | Query: days?(30) | `{success:true, period_days, analytics:{daily_registrations:[{_id:date,count}], daily_calls:[{_id,count,revenue}], daily_recharges:[{_id,count,amount}]}}` |
+| 67 | POST | `/admin/notifications/send` | Admin | JSON: `{title, message, target:"all"\|"specific_user", user_id?}` | `{success:true, message:"Notification sent successfully"}` |
+| 68 | GET | `/admin/notifications` | Admin | — | `{success:true, notifications:[{title,message,target,user_id,sent_at}]}` |
 
 ### Settings (`app/routers/settings.py`)
 | # | Method | Path | Auth | Request Body | Response Example |
 |---|--------|------|------|--------------|------------------|
-| 62 | GET | `/settings/app` | No (public) | — | `{success:true, settings:{connecting_seconds,billing_tick_seconds,...,priya_name}}` |
-| 63 | GET | `/settings/admin` | Admin | — | `{success:true, settings:{...all defaults+overrides}, ai:{configured,model,base_url}}` |
-| 64 | PUT | `/settings/admin` | Admin | JSON: `{connecting_seconds?,billing_tick_seconds?,...,priya_bot?:{name,greeting,personality,instructions}}` | `{success:true, message:"Settings saved", settings:{...}}` |
+| 69 | GET | `/settings/app` | No (public) | — | `{success:true, settings:{connecting_seconds,billing_tick_seconds,...,priya_name}}` |
+| 70 | GET | `/settings/admin` | Admin | — | `{success:true, settings:{...all defaults+overrides}, ai:{configured,model,base_url}}` |
+| 71 | PUT | `/settings/admin` | Admin | JSON: `{connecting_seconds?,billing_tick_seconds?,...,priya_bot?:{name,greeting,personality,instructions}}` | `{success:true, message:"Settings saved", settings:{...}}` |
 
 ### UPID (`app/routers/upid_module.py`)
 | # | Method | Path | Auth | Request Body | Response Example |
 |---|--------|------|------|--------------|------------------|
-| 65 | POST | `/upid/add` | Admin | JSON body (upid string) | `{success:true, message:"UPID created", upid:"9876543210@upi"}` |
-| 66 | GET | `/upid/get` | Any authenticated | — | `{success:true, upid:"..."}` |
-| 67 | PUT | `/upid/update` | Admin | JSON body (upid string) | `{success:true, message:"UPID updated", upid:"..."}` |
+| 72 | POST | `/upid/add` | Admin | JSON body (upid string) | `{success:true, message:"UPID created", upid:"9876543210@upi"}` |
+| 73 | GET | `/upid/get` | Any authenticated | — | `{success:true, upid:"..."}` |
+| 74 | PUT | `/upid/update` | Admin | JSON body (upid string) | `{success:true, message:"UPID updated", upid:"..."}` |
 
 ### Levels (`app/routers/levels.py`)
 | # | Method | Path | Auth | Request Body | Response Example |
 |---|--------|------|------|--------------|------------------|
-| 68 | GET | `/levels/my-level` | User | — | `{success:true, level:{level,title,xp,next_level_xp,progress_percent}, badge, perks, xp_actions:[...]}` |
-| 69 | GET | `/levels/leaderboard` | No | — | `{success:true, leaderboard:[{rank,name,level,level_title,xp,profile_picture,id}]}` |
-| 70 | GET | `/levels/all-levels` | No | — | `{success:true, levels:[{level,title,min_xp,max_xp,badge,perks}], xp_actions:[...]}` |
+| 75 | GET | `/levels/my-level` | User | — | `{success:true, level:{level,title,xp,next_level_xp,progress_percent}, badge, perks, xp_actions:[...]}` |
+| 76 | GET | `/levels/leaderboard` | No | — | `{success:true, leaderboard:[{rank,name,level,level_title,xp,profile_picture,id}]}` |
+| 77 | GET | `/levels/all-levels` | No | — | `{success:true, levels:[{level,title,min_xp,max_xp,badge,perks}], xp_actions:[...]}` |
 
 ---
 
