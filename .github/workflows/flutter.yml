@@ -1,14 +1,12 @@
-name: Flutter CI — Build Two APKs
+name: Flutter CI — Build APK
 
 on:
   push:
     branches: [arena/01a0d32d-video-app-ankit]
-  pull_request:
-    branches: [arena/01a0d32d-video-app-ankit]
   workflow_dispatch:
 
 jobs:
-  build-apks:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -29,6 +27,9 @@ jobs:
       - name: Flutter doctor
         run: flutter doctor -v
 
+      - name: Show Flutter config
+        run: flutter config
+
       - name: Get Flutter dependencies
         working-directory: flutter_app
         run: flutter pub get
@@ -36,44 +37,31 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1 || true
 
-      - name: Check entry point files
+      - name: Build APK (debug first)
+        working-directory: flutter_app
+        run: flutter build apk --debug 2>&1
+
+      - name: List debug outputs
         working-directory: flutter_app
         run: |
-          echo "=== Checking entry points ==="
-          ls -la lib/main_orange.dart lib/main_dating.dart lib/main.dart
-          echo "=== main_orange.dart content ==="
-          cat lib/main_orange.dart
-          echo "=== main_dating.dart content ==="
-          cat lib/main_dating.dart
+          find build -name "*.apk" 2>/dev/null || echo "No debug APKs found"
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No output dir"
 
-      - name: Build Orange APK (videcall1)
+      - name: Build APK (release)
+        working-directory: flutter_app
+        run: flutter build apk --release 2>&1
+
+      - name: List release outputs
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
-            --target lib/main_orange.dart \
-            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
-          mkdir -p build/orange
-          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
+          find build -name "*.apk" 2>/dev/null || echo "No release APKs found"
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No output dir"
 
-      - name: Build Dating APK (videcall2)
-        working-directory: flutter_app
-        run: |
-          flutter build apk --release \
-            --target lib/main_dating.dart \
-            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
-          mkdir -p build/dating
-          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
-
-      - name: Upload Orange APK artifact
+      - name: Upload APKs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-orange-apk-videcall1
-          path: flutter_app/build/orange/app-orange-release.apk
-          retention-days: 14
-
-      - name: Upload Dating APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-dating-apk-videcall2
-          path: flutter_app/build/dating/app-dating-release.apk
+          name: all-apks
+          path: |
+            flutter_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 14
