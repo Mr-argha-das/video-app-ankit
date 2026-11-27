@@ -34,6 +34,10 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
+      - name: Install Android SDK 34 for Flutter compatibility
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" 2>&1 || true
+
       - name: Create local.properties for Gradle
         run: |
           FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
