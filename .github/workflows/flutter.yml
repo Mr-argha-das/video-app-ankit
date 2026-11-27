@@ -11,6 +11,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -40,32 +42,48 @@ jobs:
           echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
-      - name: Dart analyze
+      - name: Dart analyze (write to repo file)
         working-directory: flutter_app
-        run: flutter analyze 2>&1
+        run: |
+          flutter analyze 2>&1 | tee analyze.log
+          echo "ANALYZE_EXIT_CODE=$?" >> analyze.log
+          cp analyze.log ../analyze.log
+
+      - name: Commit analyze.log to repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add analyze.log
+          git commit -m "ci: save dart analyze output" || true
+          git push || true
 
       - name: Build APK
         working-directory: flutter_app
         run: |
           flutter build apk --release --verbose 2>&1 | tee build_output.log
+          echo "BUILD_EXIT_CODE=$?" >> build_output.log
+          cp build_output.log ../build_output.log
+
+      - name: Commit build_output.log to repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add build_output.log
+          git commit -m "ci: save build output" || true
+          git push || true
 
       - name: Find APKs
         working-directory: flutter_app
         run: |
           find build -name "*.apk" 2>/dev/null || echo "No APKs found"
 
-      - name: Upload build log
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: flutter_app/build_output.log
-          retention-days: 14
-
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-apk
-          path: flutter_app/build/app/outputs/flutter-apk/*.apk
+          name: all-artifacts
+          path: |
+            flutter_app/analyze.log
+            flutter_app/build_output.log
+            flutter_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 14
