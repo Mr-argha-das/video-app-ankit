@@ -25,6 +25,14 @@ jobs:
           channel: "stable"
           flutter-version: "3.19.x"
 
+      - name: Find and configure Android SDK
+        run: |
+          echo "Looking for Android SDK..."
+          ls -d /usr/lib/android-sdk 2>/dev/null && echo "Found at /usr/lib/android-sdk" || echo "Not at /usr/lib/android-sdk"
+          ls -d $HOME/android-sdk 2>/dev/null && echo "Found at $HOME/android-sdk" || echo "Not at $HOME/android-sdk"
+          ls -d /opt/android-sdk 2>/dev/null && echo "Found at /opt/android-sdk" || echo "Not at /opt/android-sdk"
+          which sdkmanager && sdkmanager --version || echo "sdkmanager not found"
+
       - name: Flutter doctor
         run: flutter doctor -v
 
