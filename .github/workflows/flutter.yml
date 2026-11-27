@@ -39,22 +39,49 @@ jobs:
       - name: Build Orange APK (videcall1)
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
+          flutter build apk --release --verbose \
             --target lib/main_orange.dart \
-            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
+            --dart-define=API_BASE_URL=https://videcall1.duckdns.org 2>&1 | tee build_orange.log || true
+          echo "---BUILD ORANGE LOG---"
+          cat build_orange.log
           mkdir -p build/orange
-          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
+            echo "Orange APK copied successfully"
+          else
+            echo "Orange APK NOT FOUND at expected path"
+            find build -name "*.apk" 2>/dev/null || echo "No APKs found in build dir"
+          fi
 
       - name: Build Dating APK (videcall2)
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
+          flutter build apk --release --verbose \
             --target lib/main_dating.dart \
-            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
+            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org 2>&1 | tee build_dating.log || true
+          echo "---BUILD DATING LOG---"
+          cat build_dating.log
           mkdir -p build/dating
-          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
+            echo "Dating APK copied successfully"
+          else
+            echo "Dating APK NOT FOUND at expected path"
+            find build -name "*.apk" 2>/dev/null || echo "No APKs found in build dir"
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            flutter_app/build_orange.log
+            flutter_app/build_dating.log
+          retention-days: 1
 
       - name: Upload Orange APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-orange-apk-videcall1
@@ -62,6 +89,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Dating APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-dating-apk-videcall2
