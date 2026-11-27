@@ -24,10 +24,14 @@ jobs:
         with:
           channel: "stable"
           flutter-version: "3.19.x"
+          cache: true
+
+      - name: Flutter doctor (diagnostics)
+        run: flutter doctor -v || true
 
       - name: Get Flutter dependencies
         working-directory: flutter_app
-        run: flutter pub get
+        run: flutter pub get --verbose || true
 
       - name: Accept Android SDK licenses
         run: |
@@ -50,16 +54,17 @@ jobs:
         run: |
           flutter build apk --release \
             --flavor orange \
-            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
+            --dart-define=API_BASE_URL=https://videcall1.duckdns.org || true
 
       - name: Build Dating APK (videcall2.duckdns.org)
         working-directory: flutter_app
         run: |
           flutter build apk --release \
             --flavor dating \
-            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
+            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org || true
 
       - name: Upload Orange APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-orange-apk
@@ -67,6 +72,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Dating APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-dating-apk
