@@ -1,11 +1,14 @@
-name: Flutter CI — Build APK
+name: Flutter CI — Build Two APKs
 
 on:
   push:
     branches: [arena/01a0d32d-video-app-ankit]
+  pull_request:
+    branches: [arena/01a0d32d-video-app-ankit]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-apks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,30 +36,34 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1 || true
 
-      - name: Build default APK (main.dart)
+      - name: Build Orange APK (videcall1)
         working-directory: flutter_app
         run: |
-          flutter build apk --release 2>&1 | tee build_output.txt
-          echo "EXIT_CODE=${PIPESTATUS[0]}"
+          flutter build apk --release \
+            --target lib/main_orange.dart \
+            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
+          mkdir -p build/orange
+          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
 
-      - name: List build outputs
+      - name: Build Dating APK (videcall2)
         working-directory: flutter_app
         run: |
-          find build -name "*.apk" 2>/dev/null || echo "No APKs found"
-          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No output dir"
+          flutter build apk --release \
+            --target lib/main_dating.dart \
+            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
+          mkdir -p build/dating
+          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
 
-      - name: Upload build log
-        if: always()
+      - name: Upload Orange APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: flutter_app/build_output.txt
-          retention-days: 1
+          name: app-orange-apk-videcall1
+          path: flutter_app/build/orange/app-orange-release.apk
+          retention-days: 14
 
-      - name: Upload APK
-        if: always()
+      - name: Upload Dating APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-apk
-          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          name: app-dating-apk-videcall2
+          path: flutter_app/build/dating/app-dating-release.apk
           retention-days: 14
