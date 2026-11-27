@@ -1,0 +1,8 @@
+<resources>
+    <style name="LaunchTheme" parent="io.flutter.embedding.android.FlutterLaunchTheme">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <style name="NormalTheme" parent="io.flutter.embedding.android.FlutterTheme">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+</resources>
