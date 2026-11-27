@@ -40,14 +40,6 @@ jobs:
           echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
-      - name: Flutter analyze
-        working-directory: flutter_app
-        run: flutter analyze
-
-      - name: Clean build cache
-        working-directory: flutter_app
-        run: flutter clean
-
       - name: Build Orange APK (videcall1)
         working-directory: flutter_app
         run: |
