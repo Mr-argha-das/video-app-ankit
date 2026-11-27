@@ -1,4 +1,4 @@
-name: Flutter CI — Build Two APKs
+name: Flutter CI — Debug Build Test
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-apks:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -40,42 +40,25 @@ jobs:
           echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
-      - name: Build Orange APK (videcall1)
+      - name: Build APK debug
         working-directory: flutter_app
         run: |
-          flutter build apk --release --target lib/main_orange.dart > build_orange.log 2>&1
-          ORANGE_EXIT=$?
-          cat build_orange.log
-          mkdir -p build/orange
-          APK_PATH=$(find build -name "*.apk" | head -1)
-          if [ -n "$APK_PATH" ]; then
-            cp "$APK_PATH" build/orange/app-orange-release.apk
-            echo "Orange APK copied successfully"
-          fi
-          exit $ORANGE_EXIT
+          flutter build apk --debug > build_debug.log 2>&1
+          EXIT=$?
+          cat build_debug.log
+          exit $EXIT
 
-      - name: Build Dating APK (videcall2)
+      - name: Find APKs
         working-directory: flutter_app
         run: |
-          flutter build apk --release --target lib/main_dating.dart > build_dating.log 2>&1
-          DATING_EXIT=$?
-          cat build_dating.log
-          mkdir -p build/dating
-          APK_PATH=$(find build -name "*.apk" | head -1)
-          if [ -n "$APK_PATH" ]; then
-            cp "$APK_PATH" build/dating/app-dating-release.apk
-            echo "Dating APK copied successfully"
-          fi
-          exit $DATING_EXIT
+          find build -name "*.apk" 2>/dev/null || echo "No APKs found"
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifacts
+          name: debug-artifacts
           path: |
-            flutter_app/build_orange.log
-            flutter_app/build_dating.log
-            flutter_app/build/orange/app-orange-release.apk
-            flutter_app/build/dating/app-dating-release.apk
+            flutter_app/build_debug.log
+            flutter_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 14
