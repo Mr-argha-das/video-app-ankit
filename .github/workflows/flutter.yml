@@ -38,8 +38,13 @@ jobs:
 
       - name: Write local.properties for Gradle
         run: |
-          echo "flutter.sdk=$(dirname $(dirname $(which flutter)))" > flutter_app/android/local.properties
+          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
+          echo "Flutter SDK dir: $FLUTTER_DIR"
+          echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
           cat flutter_app/android/local.properties
+          ls -la flutter_app/android/
+          ls -la flutter_app/android/app/src/main/
+          ls -la flutter_app/android/app/src/main/java/com/onlinedost/app/
 
       - name: Run flutter analyze (capture output, don't fail)
         working-directory: flutter_app
@@ -53,17 +58,23 @@ jobs:
           path: flutter_app/analyze_output.txt
           retention-days: 1
 
+      - name: Verify Flutter Gradle plugin exists
+        run: |
+          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
+          echo "Looking for: $FLUTTER_DIR/packages/flutter_tools/gradle/flutter.gradle"
+          ls -la "$FLUTTER_DIR/packages/flutter_tools/gradle/flutter.gradle" || echo "NOT FOUND!"
+
       - name: Build Orange APK (videcall1.duckdns.org)
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
+          flutter build apk --release --verbose \
             --flavor orange \
             --dart-define=API_BASE_URL=https://videcall1.duckdns.org
 
       - name: Build Dating APK (videcall2.duckdns.org)
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
+          flutter build apk --release --verbose \
             --flavor dating \
             --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
 
