@@ -1,12 +1,14 @@
-name: Flutter CI — Build APK
+name: Flutter CI — Build Two APKs
 
 on:
   push:
     branches: [arena/01a0d32d-video-app-ankit]
+  pull_request:
+    branches: [arena/01a0d32d-video-app-ankit]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-apks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -24,9 +26,6 @@ jobs:
           channel: "stable"
           flutter-version: "3.19.x"
 
-      - name: Flutter precache Android
-        run: flutter precache --android
-
       - name: Flutter doctor
         run: flutter doctor -v
 
@@ -37,29 +36,43 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
-      - name: Build APK debug
-        working-directory: flutter_app
-        run: flutter build apk --debug 2>&1
+      - name: Create local.properties for Gradle
+        run: |
+          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
+          echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
+          echo "Created local.properties:"
+          cat flutter_app/android/local.properties
 
-      - name: List debug APKs
+      - name: Build Orange APK (videcall1)
         working-directory: flutter_app
         run: |
-          find build -name "*.apk" 2>/dev/null || echo "No debug APKs found"
+          flutter build apk --release \
+            --target lib/main_orange.dart \
+            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
+          mkdir -p build/orange
+          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
 
-      - name: Build APK release
-        working-directory: flutter_app
-        run: flutter build apk --release 2>&1
-
-      - name: List release APKs
+      - name: Build Dating APK (videcall2)
         working-directory: flutter_app
         run: |
-          find build -name "*.apk" 2>/dev/null || echo "No release APKs found"
+          flutter build apk --release \
+            --target lib/main_dating.dart \
+            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
+          mkdir -p build/dating
+          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
 
-      - name: Upload APKs
+      - name: Upload Orange APK artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: all-apks
-          path: |
-            flutter_app/build/app/outputs/flutter-apk/*.apk
+          name: app-orange-apk-videcall1
+          path: flutter_app/build/orange/app-orange-release.apk
+          retention-days: 14
+
+      - name: Upload Dating APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-dating-apk-videcall2
+          path: flutter_app/build/dating/app-dating-release.apk
           retention-days: 14
