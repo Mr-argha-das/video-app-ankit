@@ -52,7 +52,7 @@ jobs:
         working-directory: flutter_app
         run: |
           set -eo pipefail
-          flutter build apk --release --verbose \
+          flutter build apk --release \
             --target lib/main_orange.dart \
             --dart-define=API_BASE_URL=https://videcall1.duckdns.org 2>&1 | tee build_orange.log
           mkdir -p build/orange
@@ -64,7 +64,7 @@ jobs:
         working-directory: flutter_app
         run: |
           set -eo pipefail
-          flutter build apk --release --verbose \
+          flutter build apk --release \
             --target lib/main_dating.dart \
             --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org 2>&1 | tee build_dating.log
           mkdir -p build/dating
@@ -75,16 +75,17 @@ jobs:
       - name: Save logs to repo
         if: always()
         run: |
-          cp flutter_app/analyze.log analyze.log 2>/dev/null || true
-          cp flutter_app/build_orange.log build_orange.log 2>/dev/null || true
-          cp flutter_app/build_dating.log build_dating.log 2>/dev/null || true
+          mkdir -p ci-logs
+          cp flutter_app/analyze.log ci-logs/analyze.log 2>/dev/null || true
+          cp flutter_app/build_orange.log ci-logs/build_orange.log 2>/dev/null || true
+          cp flutter_app/build_dating.log ci-logs/build_dating.log 2>/dev/null || true
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add analyze.log build_orange.log build_dating.log 2>/dev/null || true
+          git add ci-logs/ 2>/dev/null || true
           git commit -m "ci: save build logs" 2>/dev/null || true
           git push 2>/dev/null || true
 
-      - name: Upload logs
+      - name: Upload logs artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
