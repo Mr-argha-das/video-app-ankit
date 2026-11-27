@@ -1,14 +1,12 @@
-name: Flutter CI — Build Two APKs
+name: Flutter CI — Build APK
 
 on:
   push:
     branches: [arena/01a0d32d-video-app-ankit]
-  pull_request:
-    branches: [arena/01a0d32d-video-app-ankit]
   workflow_dispatch:
 
 jobs:
-  build-apks:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -36,34 +34,19 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
-      - name: Build Orange APK (videcall1.duckdns.org)
+      - name: Build APK (release, default main.dart)
+        working-directory: flutter_app
+        run: flutter build apk --release 2>&1
+
+      - name: List APKs
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
-            --target lib/main_orange.dart \
-            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
-          mkdir -p build/orange
-          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
+          find build -name "*.apk" 2>/dev/null || echo "No APKs found"
 
-      - name: Build Dating APK (videcall2.duckdns.org)
-        working-directory: flutter_app
-        run: |
-          flutter build apk --release \
-            --target lib/main_dating.dart \
-            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
-          mkdir -p build/dating
-          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
-
-      - name: Upload Orange APK artifact
+      - name: Upload APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-orange-apk-videcall1
-          path: flutter_app/build/orange/app-orange-release.apk
-          retention-days: 14
-
-      - name: Upload Dating APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-dating-apk-videcall2
-          path: flutter_app/build/dating/app-dating-release.apk
+          name: app-apk
+          path: flutter_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 14
