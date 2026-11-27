@@ -1,13 +1,11 @@
-name: Flutter CI — Build Two APKs
+name: Flutter CI — Build APK
 
 on:
   push:
     branches: [arena/01a0d32d-video-app-ankit]
-  pull_request:
-    branches: [arena/01a0d32d-video-app-ankit]
 
 jobs:
-  build-apks:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -35,13 +33,11 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1 || true
 
-      - name: Try debug build Orange
+      - name: Build default APK (main.dart)
         working-directory: flutter_app
-        run: flutter build apk --debug --target lib/main_orange.dart --dart-define=API_BASE_URL=https://videcall1.duckdns.org || echo "DEBUG BUILD FAILED"
-
-      - name: Try release build Orange
-        working-directory: flutter_app
-        run: flutter build apk --release --target lib/main_orange.dart --dart-define=API_BASE_URL=https://videcall1.duckdns.org || echo "RELEASE BUILD FAILED"
+        run: |
+          flutter build apk --release 2>&1 | tee build_output.txt
+          echo "EXIT_CODE=${PIPESTATUS[0]}"
 
       - name: List build outputs
         working-directory: flutter_app
@@ -49,11 +45,18 @@ jobs:
           find build -name "*.apk" 2>/dev/null || echo "No APKs found"
           ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No output dir"
 
-      - name: Upload artifacts
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-apks
-          path: |
-            flutter_app/build/**/*.apk
+          name: build-log
+          path: flutter_app/build_output.txt
+          retention-days: 1
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-apk
+          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
