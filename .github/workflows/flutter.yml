@@ -58,6 +58,8 @@ jobs:
       - name: Build Orange APK (videcall1.duckdns.org)
         working-directory: flutter_app
         run: |
+          flutter clean
+          flutter precache --android
           flutter build apk --release --verbose \
             --target lib/main_orange.dart \
             --dart-define=API_BASE_URL=https://videcall1.duckdns.org
@@ -67,6 +69,8 @@ jobs:
       - name: Build Dating APK (videcall2.duckdns.org)
         working-directory: flutter_app
         run: |
+          flutter clean
+          flutter precache --android
           flutter build apk --release --verbose \
             --target lib/main_dating.dart \
             --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
