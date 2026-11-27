@@ -34,9 +34,11 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
-      - name: Build APK (release, default main.dart)
+      - name: Clean and Build APK
         working-directory: flutter_app
-        run: flutter build apk --release 2>&1
+        run: |
+          flutter clean
+          flutter build apk --release 2>&1
 
       - name: List APKs
         working-directory: flutter_app
