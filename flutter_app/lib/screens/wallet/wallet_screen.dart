@@ -10,6 +10,7 @@ import '../../models/models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../services/api_service.dart';
+import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/widgets.dart';
 

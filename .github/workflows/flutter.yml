@@ -44,39 +44,33 @@ jobs:
           echo "flutter.sdk=$FLUTTER_DIR" > flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
-      - name: Dart analyze (capture all analysis errors)
+      - name: Dart analyze
         working-directory: flutter_app
         run: flutter analyze 2>&1 | tee analyze.log || true
 
-      - name: Build Orange APK with verbose output
+      - name: Build Orange APK
         working-directory: flutter_app
         run: |
-          set -x
+          set -eo pipefail
           flutter build apk --release --verbose \
             --target lib/main_orange.dart \
             --dart-define=API_BASE_URL=https://videcall1.duckdns.org 2>&1 | tee build_orange.log
-          echo "EXIT_CODE=$?" >> build_orange.log
           mkdir -p build/orange
           APK_PATH=$(find build -name "*.apk" | head -1)
           echo "Found APK: $APK_PATH"
-          if [ -n "$APK_PATH" ]; then
-            cp "$APK_PATH" build/orange/app-orange-release.apk
-          fi
+          cp "$APK_PATH" build/orange/app-orange-release.apk
 
-      - name: Build Dating APK with verbose output
+      - name: Build Dating APK
         working-directory: flutter_app
         run: |
-          set -x
+          set -eo pipefail
           flutter build apk --release --verbose \
             --target lib/main_dating.dart \
             --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org 2>&1 | tee build_dating.log
-          echo "EXIT_CODE=$?" >> build_dating.log
           mkdir -p build/dating
           APK_PATH=$(find build -name "*.apk" | head -1)
           echo "Found APK: $APK_PATH"
-          if [ -n "$APK_PATH" ]; then
-            cp "$APK_PATH" build/dating/app-dating-release.apk
-          fi
+          cp "$APK_PATH" build/dating/app-dating-release.apk
 
       - name: Save logs to repo
         if: always()
