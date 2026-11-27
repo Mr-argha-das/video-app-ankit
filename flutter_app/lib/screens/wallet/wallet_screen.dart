@@ -126,9 +126,11 @@ class _WalletScreenState extends State<WalletScreen> {
                 ),
 
                 const SectionTitle('⚡ Recharge Packs'),
-                Text('Pay ₹ → Get coins (1 coin = ₹1). Bonus coins free.',
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                    padding: const EdgeInsets.symmetric(horizontal: 16)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Pay ₹ → Get coins (1 coin = ₹1). Bonus coins free.',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                ),
                 const SizedBox(height: 10),
                 GridView.builder(
                   shrinkWrap: true,
@@ -276,7 +278,7 @@ class _RechargeSheetState extends State<_RechargeSheet> {
   bool _gotOrder = false;
 
   // QR deposit fields
-  String? _qrImageUrl;
+  String _qrImageUrl = '';
   String _upiId = '';
   File? _screenshot;
   final _utrCtrl = TextEditingController();

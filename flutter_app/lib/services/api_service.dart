@@ -157,6 +157,10 @@ class ApiService {
     );
   }
 
+  /// Alias for putJson — some screens call api.put(...).
+  Future<dynamic> put(String path, Map<String, dynamic> body) =>
+      putJson(path, body);
+
   Future<dynamic> putJson(String path, Map<String, dynamic> body) {
     final encoded = jsonEncode(body);
     return _send(

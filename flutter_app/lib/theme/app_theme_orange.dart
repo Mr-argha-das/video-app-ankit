@@ -26,14 +26,6 @@ class AppTheme {
   static const Color textMain = Color(0xDDFFFFFF);
   static const Color textMuted = Color(0xFFB4A3C7);
 
-  // Dating brand gradient (pink → orange) — usable anywhere a
-  // highlight gradient is needed.
-  static const LinearGradient brandGradient = LinearGradient(
-    colors: [Color(0xFFFF7C4D), Color(0xFFFF9B6E)],
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-  );
-
   static ThemeData get dark {
     final base = ThemeData.dark(useMaterial3: true);
     return base.copyWith(

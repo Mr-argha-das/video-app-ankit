@@ -6,11 +6,13 @@ import '../../models/models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/inbox_provider.dart';
+import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/recharge_prompt.dart';
 import '../../widgets/widgets.dart';
 import '../call/call_screen.dart';
 import '../home/host_detail_screen.dart';
+import '../wallet/wallet_screen.dart';
 
 /// Chat page with one host (opened from the Inbox tab or a host profile).
 ///
