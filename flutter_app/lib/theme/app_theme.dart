@@ -1,114 +1,134 @@
 import 'package:flutter/material.dart';
 
-/// OnlineDost.app theme.
-/// Orange (#FF7C4D) primary, white/light cards, rounded 16px corners.
+import 'app_theme_orange.dart' as orange;
+import 'app_theme_dating.dart' as dating;
+import '../config/app_flavor.dart';
+
+/// Wrapper theme — flavor ke hisaab se sahi theme return karta hai.
 class AppTheme {
-  // Surfaces — light cards on a soft dark background
-  static const Color bg = Color(0xFF121212);
-  static const Color card = Color(0xFFFFFFFF);      // white cards
-  static const Color cardAlt = Color(0xFFF5F5F5);
-  static const Color border = Color(0xFFE0E0E0);
-
-  // Brand colours
-  static const Color primary = Color(0xFFFF7C4D);   // orange
-  static const Color primaryDark = Color(0xFFE86B3A);
-  static const Color accent = Color(0xFFFF9B6E);
-
-  static const Color success = Color(0xFF00B894);
-  static const Color warning = Color(0xFFFDCB6E);
-  static const Color danger = Color(0xFFE17055);
-  static const Color textMain = Color(0xFF1A1A1A);
-  static const Color textMuted = Color(0xFF757575);
-
-  static const LinearGradient brandGradient = LinearGradient(
-    colors: [Color(0xFFFF7C4D), Color(0xFFFF9B6E)],
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-  );
-
-  static const Color success = Color(0xFF00B894);
-  static const Color warning = Color(0xFFFDCB6E);
-  static const Color danger = Color(0xFFE17055);
-  static const Color textMain = Color(0xDDFFFFFF);
-  static const Color textMuted = Color(0xFFB4A3C7);
-
-  // Dating brand gradient (pink → orange) — usable anywhere a
-  // highlight gradient is needed.
-  static const LinearGradient brandGradient = LinearGradient(
-    colors: [Color(0xFFFF7C4D), Color(0xFFFF9B6E)],
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-  );
-
   static ThemeData get dark {
-    final base = ThemeData.dark(useMaterial3: true);
-    return base.copyWith(
-      scaffoldBackgroundColor: bg,
-      colorScheme: const ColorScheme.dark(
-        primary: primary,
-        secondary: primaryDark,
-        surface: card,
-        error: danger,
-      ),
-      cardColor: card,
-      dividerColor: border,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: bg,
-        foregroundColor: textMain,
-        elevation: 0,
-        centerTitle: false,
-      ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: bg,
-        selectedItemColor: primary,
-        unselectedItemColor: textMuted,
-        type: BottomNavigationBarType.fixed,
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: cardAlt,
-        hintStyle: const TextStyle(color: textMuted, fontSize: 14),
-        labelStyle: const TextStyle(color: textMuted),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: primary, width: 1.5),
-        ),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primary,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: primary,
-          side: const BorderSide(color: primary),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-      ),
-      dialogTheme: DialogTheme(
-        backgroundColor: card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-      snackBarTheme: const SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: cardAlt,
-        contentTextStyle: TextStyle(color: textMain),
-      ),
-    );
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.dark;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.dark;
+    }
+  }
+
+  static Color get primary {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.primary;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.primary;
+    }
+  }
+
+  static Color get primaryDark {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.primaryDark;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.purple;
+    }
+  }
+
+  static Color get accent {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.accent;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.accent;
+    }
+  }
+
+  static Color get success {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.success;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.success;
+    }
+  }
+
+  static Color get warning {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.warning;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.warning;
+    }
+  }
+
+  static Color get danger {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.danger;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.danger;
+    }
+  }
+
+  static Color get bg {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.bg;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.bg;
+    }
+  }
+
+  static Color get card {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.card;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.card;
+    }
+  }
+
+  static Color get cardAlt {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.cardAlt;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.cardAlt;
+    }
+  }
+
+  static Color get border {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.border;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.border;
+    }
+  }
+
+  static Color get textMain {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.textMain;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.textMain;
+    }
+  }
+
+  static Color get textMuted {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.textMuted;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.textMuted;
+    }
+  }
+
+  static LinearGradient get brandGradient {
+    switch (AppFlavorConfig.current) {
+      case AppFlavor.orange:
+        return orange.AppTheme.brandGradient;
+      case AppFlavor.dating:
+        return dating.AppThemeDating.brandGradient;
+    }
   }
 }

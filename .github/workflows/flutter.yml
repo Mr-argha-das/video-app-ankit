@@ -26,6 +26,7 @@ jobs:
       - name: Run flutter analyze
         working-directory: flutter_app
         run: flutter analyze 2>&1 | tee analyze_output.txt || true
+
       - name: Upload analyze output
         if: always()
         uses: actions/upload-artifact@v4
@@ -34,6 +35,24 @@ jobs:
           path: flutter_app/analyze_output.txt
           retention-days: 1
 
-      - name: Run Flutter tests
+      - name: Build Orange APK (videcall1)
         working-directory: flutter_app
-        run: flutter test || true
+        run: flutter build apk --release --flavor orange --dart-define=API_BASE_URL=https://videcall1.duckdns.org
+
+      - name: Build Dating APK (videcall2)
+        working-directory: flutter_app
+        run: flutter build apk --release --flavor dating --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
+
+      - name: Upload Orange APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-orange-apk
+          path: flutter_app/build/app/outputs/flutter-apk/app-orange-release.apk
+          retention-days: 7
+
+      - name: Upload Dating APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-dating-apk
+          path: flutter_app/build/app/outputs/flutter-apk/app-dating-release.apk
+          retention-days: 7

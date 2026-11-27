@@ -1,0 +1,7 @@
+videcall1.duckdns.org {
+    reverse_proxy localhost:8003
+}
+
+videcall2.duckdns.org {
+    reverse_proxy localhost:8004
+}
