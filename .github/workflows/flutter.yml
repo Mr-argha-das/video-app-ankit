@@ -36,52 +36,35 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1 || true
 
+      - name: Check entry point files
+        working-directory: flutter_app
+        run: |
+          echo "=== Checking entry points ==="
+          ls -la lib/main_orange.dart lib/main_dating.dart lib/main.dart
+          echo "=== main_orange.dart content ==="
+          cat lib/main_orange.dart
+          echo "=== main_dating.dart content ==="
+          cat lib/main_dating.dart
+
       - name: Build Orange APK (videcall1)
         working-directory: flutter_app
         run: |
-          flutter build apk --release --verbose \
+          flutter build apk --release \
             --target lib/main_orange.dart \
-            --dart-define=API_BASE_URL=https://videcall1.duckdns.org 2>&1 | tee build_orange.log || true
-          echo "---BUILD ORANGE LOG---"
-          cat build_orange.log
+            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
           mkdir -p build/orange
-          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
-            echo "Orange APK copied successfully"
-          else
-            echo "Orange APK NOT FOUND at expected path"
-            find build -name "*.apk" 2>/dev/null || echo "No APKs found in build dir"
-          fi
+          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk
 
       - name: Build Dating APK (videcall2)
         working-directory: flutter_app
         run: |
-          flutter build apk --release --verbose \
+          flutter build apk --release \
             --target lib/main_dating.dart \
-            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org 2>&1 | tee build_dating.log || true
-          echo "---BUILD DATING LOG---"
-          cat build_dating.log
+            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
           mkdir -p build/dating
-          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
-            echo "Dating APK copied successfully"
-          else
-            echo "Dating APK NOT FOUND at expected path"
-            find build -name "*.apk" 2>/dev/null || echo "No APKs found in build dir"
-          fi
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            flutter_app/build_orange.log
-            flutter_app/build_dating.log
-          retention-days: 1
+          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk
 
       - name: Upload Orange APK artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-orange-apk-videcall1
@@ -89,7 +72,6 @@ jobs:
           retention-days: 14
 
       - name: Upload Dating APK artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-dating-apk-videcall2
