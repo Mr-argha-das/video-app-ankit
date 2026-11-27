@@ -1,4 +1,4 @@
-name: Flutter CI
+name: Flutter CI — Auto Build APKs
 
 on:
   push:
@@ -7,11 +7,17 @@ on:
     branches: [arena/01a0d32d-video-app-ankit]
 
 jobs:
-  flutter:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Java (needed for Android builds)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -21,10 +27,9 @@ jobs:
 
       - name: Get Flutter dependencies
         working-directory: flutter_app
-        run: |
-          flutter pub get || true
+        run: flutter pub get
 
-      - name: Accept Android licenses
+      - name: Accept Android SDK licenses
         run: |
           yes | flutter doctor --android-licenses || true
 
@@ -40,26 +45,30 @@ jobs:
           path: flutter_app/analyze_output.txt
           retention-days: 1
 
-      - name: Build Orange APK (videcall1)
+      - name: Build Orange APK (videcall1.duckdns.org)
         working-directory: flutter_app
-        run: flutter build apk --release --flavor orange --dart-define=API_BASE_URL=https://videcall1.duckdns.org || true
+        run: |
+          flutter build apk --release \
+            --flavor orange \
+            --dart-define=API_BASE_URL=https://videcall1.duckdns.org
 
-      - name: Build Dating APK (videcall2)
+      - name: Build Dating APK (videcall2.duckdns.org)
         working-directory: flutter_app
-        run: flutter build apk --release --flavor dating --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org || true
+        run: |
+          flutter build apk --release \
+            --flavor dating \
+            --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
 
-      - name: Upload Orange APK
-        if: always()
+      - name: Upload Orange APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-orange-apk
           path: flutter_app/build/app/outputs/flutter-apk/app-orange-release.apk
-          retention-days: 7
+          retention-days: 14
 
-      - name: Upload Dating APK
-        if: always()
+      - name: Upload Dating APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-dating-apk
           path: flutter_app/build/app/outputs/flutter-apk/app-dating-release.apk
-          retention-days: 7
+          retention-days: 14
