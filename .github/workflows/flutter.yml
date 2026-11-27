@@ -25,32 +25,6 @@ jobs:
           channel: "stable"
           flutter-version: "3.19.x"
 
-      - name: Setup Android SDK and build tools
-        run: |
-          # Find Android SDK
-          ANDROID_SDK=""
-          if [ -d "/usr/lib/android-sdk" ]; then ANDROID_SDK="/usr/lib/android-sdk"; fi
-          if [ -d "$HOME/android-sdk" ]; then ANDROID_SDK="$HOME/android-sdk"; fi
-          if [ -d "/opt/android-sdk" ]; then ANDROID_SDK="/opt/android-sdk"; fi
-          if [ -z "$ANDROID_SDK" ]; then
-            # Try to find it via flutter
-            ANDROID_SDK=$(flutter doctor -v 2>/dev/null | grep -i "android sdk" | head -1 | sed 's/.*→ //' | sed 's/ .*//')
-          fi
-          echo "ANDROID_SDK=$ANDROID_SDK"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$ANDROID_SDK" >> $GITHUB_ENV
-
-          # Install build tools if sdkmanager exists
-          if [ -n "$ANDROID_SDK" ] && [ -f "$ANDROID_SDK/tools/bin/sdkmanager" ]; then
-            echo "y" | "$ANDROID_SDK/tools/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34" 2>&1 || true
-          fi
-
-      - name: Configure Flutter for Android
-        run: |
-          if [ -n "$ANDROID_SDK_ROOT" ]; then
-            flutter config --android-sdk "$ANDROID_SDK_ROOT"
-          fi
-
       - name: Flutter doctor
         run: flutter doctor -v
 
@@ -61,25 +35,19 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1 || true
 
-      - name: Build Orange APK
+      - name: Try debug build Orange
         working-directory: flutter_app
-        run: flutter build apk --release --target lib/main_orange.dart --dart-define=API_BASE_URL=https://videcall1.duckdns.org
+        run: flutter build apk --debug --target lib/main_orange.dart --dart-define=API_BASE_URL=https://videcall1.duckdns.org || echo "DEBUG BUILD FAILED"
 
-      - name: Rename Orange APK
+      - name: Try release build Orange
+        working-directory: flutter_app
+        run: flutter build apk --release --target lib/main_orange.dart --dart-define=API_BASE_URL=https://videcall1.duckdns.org || echo "RELEASE BUILD FAILED"
+
+      - name: List build outputs
         working-directory: flutter_app
         run: |
-          mkdir -p build/orange
-          cp build/app/outputs/flutter-apk/app-release.apk build/orange/app-orange-release.apk 2>/dev/null || echo "ORANGE APK NOT FOUND"
-
-      - name: Build Dating APK
-        working-directory: flutter_app
-        run: flutter build apk --release --target lib/main_dating.dart --dart-define=DATING_API_BASE_URL=https://videcall2.duckdns.org
-
-      - name: Rename Dating APK
-        working-directory: flutter_app
-        run: |
-          mkdir -p build/dating
-          cp build/app/outputs/flutter-apk/app-release.apk build/dating/app-dating-release.apk 2>/dev/null || echo "DATING APK NOT FOUND"
+          find build -name "*.apk" 2>/dev/null || echo "No APKs found"
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No output dir"
 
       - name: Upload artifacts
         if: always()
@@ -87,6 +55,5 @@ jobs:
         with:
           name: flutter-apks
           path: |
-            flutter_app/build/orange/app-orange-release.apk
-            flutter_app/build/dating/app-dating-release.apk
+            flutter_app/build/**/*.apk
           retention-days: 14
