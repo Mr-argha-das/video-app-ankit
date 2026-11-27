@@ -17,6 +17,7 @@ class DiscoverScreen extends StatefulWidget {
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
   final _scroll = ScrollController();
+  String _tab = 'all'; // for_you | all | new | follow
 
   @override
   void initState() {
@@ -27,7 +28,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<HostProvider>().loadInitial();
+      context.read<HostProvider>().loadInitial(tab: _tab);
     });
   }
 
@@ -42,7 +43,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final auth = context.watch<AuthProvider>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🎥 VideoCall', style: TextStyle(fontWeight: FontWeight.w900)),
+        title: const Text('OnlineDost.app', style: TextStyle(fontWeight: FontWeight.w900)),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -50,8 +51,27 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           ),
         ],
       ),
-      body: Consumer<HostProvider>(
-        builder: (context, hp, _) {
+      body: Column(
+        children: [
+          // Tab selector: For You / All / New / Follow
+          Container(
+            color: AppTheme.card,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                _TabChip(label: '💛 For You', value: 'for_you'),
+                const SizedBox(width: 8),
+                _TabChip(label: '🌐 All', value: 'all'),
+                const SizedBox(width: 8),
+                _TabChip(label: '🆕 New', value: 'new'),
+                const SizedBox(width: 8),
+                _TabChip(label: '🤝 Follow', value: 'follow'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Consumer<HostProvider>(
+              builder: (context, hp, _) {
           if (hp.loading && hp.hosts.isEmpty) {
             return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
           }
@@ -116,6 +136,35 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           );
         },
       ),
+    ),
+  ],
+),
+    );
+  }
+}
+
+class _TabChip extends StatelessWidget {
+  final String label;
+  final String value;
+  const _TabChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<HostProvider>();
+    final selected = state.tab == value;
+    return ChoiceChip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      selected: selected,
+      onSelected: (_) => context.read<HostProvider>().setTab(value),
+      selectedColor: AppTheme.primary.withOpacity(0.15),
+      labelStyle: TextStyle(
+        color: selected ? AppTheme.primary : AppTheme.textMuted,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
+        fontSize: 12,
+      ),
+      backgroundColor: AppTheme.cardAlt,
+      side: BorderSide(color: selected ? AppTheme.primary : AppTheme.border),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     );
   }
 }

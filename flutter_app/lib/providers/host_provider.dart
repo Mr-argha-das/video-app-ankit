@@ -25,9 +25,11 @@ class HostProvider extends ChangeNotifier {
   // Filters
   String? interest;
   String? gender;
+  String? tab;         // 'for_you' | 'all' | 'new' | 'follow'
   String sortBy = 'created_at';
 
-  Future<void> loadInitial() async {
+  Future<void> loadInitial({String? tab}) async {
+    this.tab = tab ?? this.tab;
     loading = true;
     error = null;
     page = 1;
@@ -66,6 +68,7 @@ class HostProvider extends ChangeNotifier {
     };
     if (interest != null && interest!.isNotEmpty) query['interest'] = interest!;
     if (gender != null && gender!.isNotEmpty) query['gender'] = gender!;
+    if (tab != null && tab!.isNotEmpty && tab != 'all') query['tab'] = tab!;
 
     final data = await api.get('${AppConfig.apiPrefix}/hosts/discover', query: query);
     final list = ((data['hosts'] ?? []) as List).map((e) => Host.fromJson(Map<String, dynamic>.from(e))).toList();
@@ -117,6 +120,11 @@ class HostProvider extends ChangeNotifier {
     loadInitial();
   }
 
+  void setTab(String? value) {
+    tab = value;
+    loadInitial(tab: value);
+  }
+
   /// Random match — interest filter optional.
   Future<Host?> randomMatch({String? interest}) async {
     final data = await api.postJson('${AppConfig.apiPrefix}/chat/random-match', {
@@ -124,12 +132,5 @@ class HostProvider extends ChangeNotifier {
     });
     if (data['success'] != true) return null;
     return Host.fromJson(Map<String, dynamic>.from(data['matched_host']));
-  }
-
-  /// Random incoming call simulation.
-  Future<Host?> randomIncoming() async {
-    final data = await api.get('${AppConfig.apiPrefix}/calls/random-host');
-    if (data['success'] != true) return null;
-    return Host.fromJson(Map<String, dynamic>.from(data['host']));
   }
 }

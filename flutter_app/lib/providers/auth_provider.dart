@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
@@ -27,7 +26,7 @@ class AuthProvider extends ChangeNotifier {
   String get avatarUrl {
     final p = user?['profile_picture']?.toString();
     if (p == null || p.isEmpty) return '';
-    return p.startsWith('http') ? p : '${AppConfig.baseUrl}$p';
+    return p.startsWith('http') ? p : '${AppConfig.origin}$p';
   }
 
   /// App start — saved token se auto login.
@@ -38,8 +37,15 @@ class AuthProvider extends ChangeNotifier {
       api.token = saved;
       try {
         await refreshUser();
+      } on ApiException catch (e) {
+        // Sirf token invalid/blocked pe logout; network issue pe token rakho
+        if (e.status == 401 || e.status == 403 || e.status == 404) {
+          await _clear();
+        } else {
+          api.token = null;
+        }
       } catch (_) {
-        await _clear();
+        api.token = null;
       }
     }
     checking = false;
@@ -47,7 +53,11 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _saveSession(Map<String, dynamic> data) async {
-    api.token = data['access_token']?.toString();
+    final tok = data['access_token']?.toString();
+    if (tok == null || tok.isEmpty || data['user'] is! Map) {
+      throw ApiException(500, 'Server ka response sahi nahi hai (token missing). Backend URL check karo.');
+    }
+    api.token = tok;
     user = Map<String, dynamic>.from(data['user'] ?? {});
     final prefs = await SharedPreferences.getInstance();
     if (api.token != null) await prefs.setString(_tokenKey, api.token!);
@@ -73,6 +83,28 @@ class AuthProvider extends ChangeNotifier {
         await _saveSession(Map<String, dynamic>.from(data));
       });
 
+  /// OTP login: step 1 — send OTP.
+  Future<void> sendOtp(String mobile) => _run(() async {
+        await api.postJson('${AppConfig.apiPrefix}/auth/otp/send', {'mobile': mobile});
+      });
+
+  /// OTP login: step 2 — verify OTP and create/login user.
+  Future<void> verifyOtp(String mobile, String otp) => _run(() async {
+        final data = await api.postJson('${AppConfig.apiPrefix}/auth/otp/verify', {
+          'mobile': mobile,
+          'otp': otp,
+        });
+        await _saveSession(Map<String, dynamic>.from(data));
+      });
+
+  /// Google ID-token login.
+  Future<void> googleLogin(String idToken) => _run(() async {
+        final data = await api.postJson('${AppConfig.apiPrefix}/auth/google', {
+          'id_token': idToken,
+        });
+        await _saveSession(Map<String, dynamic>.from(data));
+      });
+
   Future<void> register({
     required String name,
     required String mobile,
@@ -88,9 +120,9 @@ class AuthProvider extends ChangeNotifier {
           'password': password,
           'gender': gender,
         };
-        final files = <http.MultipartFile>[];
+        final files = <ApiFile>[];
         if (photoBytes != null && photoName != null) {
-          files.add(http.MultipartFile.fromBytes('profile_picture', photoBytes, filename: photoName));
+          files.add(ApiFile('profile_picture', photoBytes, photoName));
         }
         final data = await api.multipart('POST', '${AppConfig.apiPrefix}/auth/register', fields: fields, files: files);
         await _saveSession(Map<String, dynamic>.from(data));
@@ -121,7 +153,7 @@ class AuthProvider extends ChangeNotifier {
         if (interestsCsv != null && interestsCsv.isNotEmpty) fields['interests'] = interestsCsv;
 
         if (photoBytes != null && photoName != null) {
-          final files = [http.MultipartFile.fromBytes('profile_picture', photoBytes, filename: photoName)];
+          final files = [ApiFile('profile_picture', photoBytes, photoName)];
           await api.multipart('PUT', '${AppConfig.apiPrefix}/auth/profile', fields: fields, files: files);
         } else {
           await api.putForm('${AppConfig.apiPrefix}/auth/profile', fields);

@@ -67,6 +67,49 @@ class WalletProvider extends ChangeNotifier {
     }
   }
 
+  /// Razorpay order banayein — frontend checkout isse use karega.
+  Future<Map<String, dynamic>> createRazorpayOrder({required num payAmount, String? packId}) async {
+    submitting = true;
+    notifyListeners();
+    try {
+      final data = await api.postJson('${AppConfig.apiPrefix}/wallet/pay/create-order', {
+        if (packId != null && packId.isNotEmpty) 'pack_id': packId,
+        if (packId == null) 'amount': payAmount,
+      });
+      return Map<String, dynamic>.from(data);
+    } finally {
+      submitting = false;
+      notifyListeners();
+    }
+  }
+
+  /// Razorpay payment verify karke coins credit karo (idempotent).
+  Future<bool> verifyRazorpayPayment({
+    required String orderId,
+    required String paymentId,
+    required String signature,
+  }) async {
+    submitting = true;
+    notifyListeners();
+    try {
+      final data = await api.postJson('${AppConfig.apiPrefix}/wallet/pay/verify', {
+        'razorpay_order_id': orderId,
+        'razorpay_payment_id': paymentId,
+        'razorpay_signature': signature,
+      });
+      await auth.refreshUser();
+      await _loadTransactions();
+      return data['success'] == true;
+    } on ApiException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return false;
+    } finally {
+      submitting = false;
+      notifyListeners();
+    }
+  }
+
   /// Recharge request create karo — coins tabhi milenge jab admin approve kare.
   Future<RechargeItem> createRecharge({required num amount, String? transactionRef}) async {
     submitting = true;

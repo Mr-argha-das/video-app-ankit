@@ -68,5 +68,15 @@ def add_xp_for_action(action: str) -> int:
     }
     return xp_map.get(action, 0)
 
+def normalize_mobile(mobile: str) -> str:
+    """'+91 98765-43210' / '09876543210' / '919876543210' → '9876543210'."""
+    digits = re.sub(r"\D", "", mobile or "")
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    return digits
+
+
 def validate_mobile(mobile: str) -> bool:
-    return bool(re.match(r'^[6-9]\d{9}$', mobile))
+    return bool(re.match(r'^[6-9]\d{9}$', mobile or ""))

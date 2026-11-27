@@ -1,3 +1,4 @@
+import httpx
 from fastapi import APIRouter, HTTPException, Depends, Body
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -62,7 +63,7 @@ async def admin_dashboard(db=Depends(get_db), admin=Depends(get_current_admin)):
 
     # Call stats
     total_calls = await db.call_logs.count_documents({})
-    completed_calls = await db.call_logs.count_documents({"status": "completed"})
+    completed_calls = await db.call_logs.count_documents({"status": {"$in": ["completed", "ended_insufficient_balance", "timed_out"]}})
     calls_today = await db.call_logs.count_documents({"created_at": {"$gte": today_start}})
 
     # Revenue
@@ -296,6 +297,26 @@ async def admin_analytics(
         }
     }
 
+async def _send_fcm(tokens: list, title: str, body: str):
+    """Best-effort FCM push. Skips silently if not configured / fails."""
+    key = settings.FCM_SERVER_KEY or settings.FC_SERVER_KEY
+    if not key:
+        return
+    valid_tokens = [t for t in tokens if t]
+    if not valid_tokens:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            await client.post(
+                "https://fcm.googleapis.com/fcm/send",
+                headers={"Authorization": f"key={key}", "Content-Type": "application/json"},
+                json={"registration_ids": valid_tokens,
+                      "notification": {"title": title, "body": body}},
+            )
+    except Exception:  # pragma: no cover - network/provider failure
+        pass
+
+
 @router.post("/notifications/send")
 async def send_notification(
     request: NotificationRequest,
@@ -312,6 +333,21 @@ async def send_notification(
         "sent_by": "admin"
     }
     await db.notifications.insert_one(notif_doc)
+
+    # FCM push to target users/devices
+    try:
+        query = {}
+        if request.target == "specific_user" and request.user_id:
+            query["user_id"] = request.user_id
+        tokens = [
+            d["fcm_token"]
+            for d in await db.devices.find(query, {"fcm_token": 1}).to_list(1000)
+            if d.get("fcm_token")
+        ]
+        await _send_fcm(tokens, request.title, request.message)
+    except Exception:  # pragma: no cover
+        pass
+
     return {"success": True, "message": "Notification sent successfully"}
 
 @router.get("/notifications")

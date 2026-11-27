@@ -10,12 +10,19 @@ db_instance = Database()
 async def connect_db():
     # MongoDB Atlas ke liye tlsAllowInvalidCertificates nahi chahiye
     # motor automatically Atlas SRV handle karta hai
+    # FIX: pehle tls=True hardcoded tha — local MongoDB (bina TLS) se connect hi
+    # nahi hota tha. Ab: mongodb+srv:// (Atlas) pe TLS automatic hai, plain
+    # mongodb:// URL ke options follow hote hain, ya MONGODB_TLS se force karo.
+    tls_kwargs = {}
+    if settings.MONGODB_TLS is not None:
+        tls_kwargs["tls"] = settings.MONGODB_TLS
+    elif settings.MONGODB_URL.startswith("mongodb+srv://"):
+        tls_kwargs["tls"] = True
     db_instance.client = AsyncIOMotorClient(
         settings.MONGODB_URL,
         serverSelectionTimeoutMS=10000,  # 10 sec timeout
         connectTimeoutMS=10000,
-        tls=True,
-        tlsAllowInvalidCertificates=False,
+        **tls_kwargs,
     )
     db_instance.db = db_instance.client[settings.DATABASE_NAME]
 
@@ -45,6 +52,9 @@ async def connect_db():
         await db_instance.db.call_logs.create_index([("caller_id", 1), ("created_at", -1)])
         await db_instance.db.gifts.create_index("category")
         await db_instance.db.recharge_requests.create_index([("status", 1), ("created_at", -1)])
+        await db_instance.db.call_logs.create_index([("caller_id", 1), ("status", 1)])
+        await db_instance.db.conversations.create_index([("user_id", 1), ("type", 1), ("host_id", 1), ("created_at", -1)])
+        await db_instance.db.call_logs.create_index("call_id", unique=True)
         print("✅ Indexes created")
     except Exception as e:
         print(f"⚠️  Index warning (non-fatal): {e}")

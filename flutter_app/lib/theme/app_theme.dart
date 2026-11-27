@@ -1,19 +1,30 @@
 import 'package:flutter/material.dart';
 
-/// Dark theme — dating-app colour palette (Tinder-style pink/orange)
-/// applied on the ORIGINAL layout. Same constant names as before,
-/// only the colour values changed.
+/// OnlineDost.app theme.
+/// Orange (#FF7C4D) primary, white/light cards, rounded 16px corners.
 class AppTheme {
-  // Warm plum-dark surfaces (dating vibe)
-  static const Color bg = Color(0xFF170F1F);
-  static const Color card = Color(0xFF241A30);
-  static const Color cardAlt = Color(0xFF2F2340);
-  static const Color border = Color(0xFF4A3558);
+  // Surfaces — light cards on a soft dark background
+  static const Color bg = Color(0xFF121212);
+  static const Color card = Color(0xFFFFFFFF);      // white cards
+  static const Color cardAlt = Color(0xFFF5F5F5);
+  static const Color border = Color(0xFFE0E0E0);
 
-  // Brand colours — pink → orange (Tinder feel), soft purple secondary
-  static const Color primary = Color(0xFFFE3C72);
-  static const Color purple = Color(0xFF9B5CF6);
-  static const Color accent = Color(0xFFFF7854);
+  // Brand colours
+  static const Color primary = Color(0xFFFF7C4D);   // orange
+  static const Color primaryDark = Color(0xFFE86B3A);
+  static const Color accent = Color(0xFFFF9B6E);
+
+  static const Color success = Color(0xFF00B894);
+  static const Color warning = Color(0xFFFDCB6E);
+  static const Color danger = Color(0xFFE17055);
+  static const Color textMain = Color(0xFF1A1A1A);
+  static const Color textMuted = Color(0xFF757575);
+
+  static const LinearGradient brandGradient = LinearGradient(
+    colors: [Color(0xFFFF7C4D), Color(0xFFFF9B6E)],
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+  );
 
   static const Color success = Color(0xFF00B894);
   static const Color warning = Color(0xFFFDCB6E);
@@ -24,7 +35,7 @@ class AppTheme {
   // Dating brand gradient (pink → orange) — usable anywhere a
   // highlight gradient is needed.
   static const LinearGradient brandGradient = LinearGradient(
-    colors: [Color(0xFFFD297B), Color(0xFFFF655B)],
+    colors: [Color(0xFFFF7C4D), Color(0xFFFF9B6E)],
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
   );
@@ -35,20 +46,20 @@ class AppTheme {
       scaffoldBackgroundColor: bg,
       colorScheme: const ColorScheme.dark(
         primary: primary,
-        secondary: purple,
+        secondary: primaryDark,
         surface: card,
         error: danger,
       ),
       cardColor: card,
       dividerColor: border,
       appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF201526),
+        backgroundColor: bg,
         foregroundColor: textMain,
         elevation: 0,
         centerTitle: false,
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: Color(0xFF201526),
+        backgroundColor: bg,
         selectedItemColor: primary,
         unselectedItemColor: textMuted,
         type: BottomNavigationBarType.fixed,
@@ -60,15 +71,15 @@ class AppTheme {
         labelStyle: const TextStyle(color: textMuted),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: primary, width: 1.5),
         ),
       ),
@@ -76,17 +87,17 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: textMuted,
-          side: const BorderSide(color: border),
+          foregroundColor: primary,
+          side: const BorderSide(color: primary),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
       dialogTheme: DialogTheme(

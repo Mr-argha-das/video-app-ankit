@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/level_provider.dart';
+import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/widgets.dart';
 import '../auth/convert_guest_screen.dart';
@@ -42,11 +43,126 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (ok == true && mounted) {
       await context.read<AuthProvider>().logout();
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (r) => false,
-        );
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (r) => false,
+      );
       }
+    }
+  }
+
+  Future<void> _toggleDnd() async {
+    final api = context.read<ApiService>();
+    try {
+      final cur = await api.get('/api/v1/users/me/settings');
+      final curDnd = (cur['settings']?['dnd'] == true);
+      await api.put('/api/v1/users/me/settings', {'dnd': !curDnd});
+      if (mounted) showSnack(context, 'DND ${!curDnd ? 'ON' : 'OFF'}');
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    }
+  }
+
+  Future<void> _openLanguages() async {
+    final api = context.read<ApiService>();
+    String langs = '';
+    try {
+      final cur = await api.get('/api/v1/users/me/settings');
+      langs = ((cur['settings']?['languages'] ?? []) as List).join(', ');
+    } catch (_) {}
+    final ctrl = TextEditingController(text: langs);
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Languages'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Comma separated, e.g. Hindi, English'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await context.read<ApiService>().put(
+                  '/api/v1/users/me/settings',
+                  {'languages': ctrl.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()},
+                );
+                if (mounted) { Navigator.of(ctx).pop(); showSnack(context, 'Languages saved'); }
+              } on ApiException catch (e) {
+                if (mounted) showSnack(context, e.message, error: true);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openBlocked() async {
+    final api = context.read<ApiService>();
+    List blocked = [];
+    try {
+      final data = await api.get('/api/v1/users/me/blocked-hosts');
+      blocked = (data['blocked'] ?? []) as List;
+    } catch (_) {}
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Blocked & Hidden Hosts'),
+        content: SizedBox(
+          width: 300,
+          child: blocked.isEmpty
+              ? const Text('Koi host block nahi hai')
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: blocked.length,
+                  itemBuilder: (_, i) => ListTile(
+                    title: Text('${blocked[i]['host_id']} (${blocked[i]['type']})'),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.block, color: AppTheme.danger, size: 20),
+                      onPressed: () async {
+                        try {
+                          await api.delete('/api/v1/users/me/blocked-hosts/${blocked[i]['host_id']}');
+                          if (mounted) showSnack(context, 'Unblocked');
+                        } on ApiException catch (e) {
+                          if (mounted) showSnack(context, e.message, error: true);
+                        }
+                      },
+                    ),
+                  ),
+                ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close'))],
+      ),
+    );
+  }
+
+  Future<void> _deleteAccount() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Account?', style: TextStyle(color: AppTheme.danger)),
+        content: const Text('Account aur saara data permanently hat jayega. Ye waapas nahi laaya ja sakega.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Delete', style: TextStyle(color: AppTheme.danger))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await context.read<ApiService>().delete('/api/v1/auth/me');
+      if (mounted) {
+        await context.read<AuthProvider>().logout();
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false);
+      }
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
     }
   }
 
@@ -193,6 +309,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _menuTile(Icons.history, 'Call history', 'Past calls & ratings', () {
               Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CallHistoryScreen()));
             }),
+            _menuTile(Icons.notifications_off, 'Do Not Disturb', 'Incoming call suggestions band', _toggleDnd),
+            _menuTile(Icons.language, 'Languages', 'Chat aur persona bhasha', _openLanguages),
+            _menuTile(Icons.block, 'Blocked & Hidden List', 'Blocked/hide kiye gaye hosts', _openBlocked),
+            const Divider(indent: 16, endIndent: 16),
+            _menuTile(Icons.delete_forever, 'Delete Account', 'Account aur data permanently hat jayega', _deleteAccount, danger: true),
             const Divider(indent: 16, endIndent: 16),
             _menuTile(Icons.logout, 'Logout', '', _logout, danger: true),
             const SizedBox(height: 24),
