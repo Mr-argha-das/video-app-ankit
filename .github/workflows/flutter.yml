@@ -24,14 +24,6 @@ jobs:
           channel: "stable"
           flutter-version: "3.19.x"
 
-      - name: Show Android SDK info
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          ls -la $ANDROID_HOME 2>/dev/null || echo "ANDROID_HOME not found"
-          ls -la $ANDROID_SDK_ROOT 2>/dev/null || echo "ANDROID_SDK_ROOT not found"
-          which sdkmanager && sdkmanager --version || echo "sdkmanager not found"
-
       - name: Flutter doctor
         run: flutter doctor -v
 
@@ -42,6 +34,34 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
-      - name: Build APK verbose
+      - name: Build APK and capture output
         working-directory: flutter_app
-        run: flutter build apk --release --verbose 2>&1
+        run: |
+          flutter build apk --release --verbose 2>&1 | tee build_output.txt
+          echo "EXIT_CODE=$?" >> build_output.txt
+
+      - name: Find any APKs
+        working-directory: flutter_app
+        run: |
+          echo "=== Searching for APKs ==="
+          find . -name "*.apk" 2>/dev/null || echo "No APKs found anywhere"
+          echo "=== Build output dir ==="
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No flutter-apk dir"
+          echo "=== All build dirs ==="
+          find build -type d 2>/dev/null || echo "No build dir"
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-txt
+          path: flutter_app/build_output.txt
+          retention-days: 14
+
+      - name: Upload any APKs found
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-apks
+          path: |
+            flutter_app/build/**/*.apk
+          retention-days: 14
