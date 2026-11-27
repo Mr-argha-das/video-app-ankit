@@ -22,7 +22,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
-          flutter-version: "3.22.x"
+          flutter-version: "3.19.x"
 
       - name: Flutter doctor
         run: flutter doctor -v
@@ -34,9 +34,8 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses 2>&1
 
-      - name: Install Android SDK 34 for Flutter compatibility
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" 2>&1 || true
+      - name: Flutter precache engine artifacts
+        run: flutter precache 2>&1
 
       - name: Create local.properties for Gradle
         run: |
